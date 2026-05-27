@@ -1,11 +1,12 @@
-export default function PrimaryButton({ children, className = "", ...props }) {
+export default function PrimaryButton({ children, onClick, className = "" }) {
   return (
     <button
-      className={`flex items-center justify-center gap-2 rounded bg-primary-container px-4 py-3 font-label-caps text-label-caps text-on-primary-container transition-opacity hover:opacity-90 ${className}`}
+      className={`w-full py-3 border border-secondary-fixed text-secondary-fixed hover:bg-secondary-fixed/5 font-label-caps text-label-caps rounded transition-colors flex justify-center items-center gap-2 ${className}`}
+      onClick={onClick}
       type="button"
-      {...props}
     >
       {children}
+      <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
     </button>
   );
 }

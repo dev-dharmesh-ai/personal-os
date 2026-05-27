@@ -1,9 +1,9 @@
-export default function GhostButton({ children, className = "", ...props }) {
+export default function GhostButton({ children, onClick, className = "" }) {
   return (
     <button
-      className={`flex items-center justify-center gap-2 rounded border border-secondary-fixed px-4 py-3 font-label-caps text-label-caps text-secondary-fixed transition-colors hover:bg-secondary-fixed/5 ${className}`}
+      className={`bg-transparent border border-outline-variant/30 text-on-surface-variant font-label-caps text-label-caps rounded px-4 py-2 transition-colors hover:border-outline-variant/60 hover:text-on-surface ${className}`}
+      onClick={onClick}
       type="button"
-      {...props}
     >
       {children}
     </button>
