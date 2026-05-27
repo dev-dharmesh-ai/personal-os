@@ -4,7 +4,7 @@ const iconStyle = { fontVariationSettings: "'FILL' 0" };
 
 const primaryNavItems = [
   { label: "Dashboard", icon: "grid_view", to: "/" },
-  { label: "Operations", icon: "precision_manufacturing", to: "/tasks" },
+  { label: "Operations", icon: "terminal", to: "/tasks" },
   { label: "Strategy", icon: "psychology", to: "/journal" },
   { label: "Analytics", icon: "insights", to: "/finance" },
   { label: "Settings", icon: "settings", to: "/calendar" },
@@ -24,7 +24,7 @@ function SidebarLink({ item }) {
         [
           "flex items-center gap-3 px-4 py-3 font-label-caps text-label-caps transition-colors",
           isActive
-            ? "border-l-2 border-primary-container bg-primary-container/5 text-primary-container"
+            ? "border-r-2 border-primary-container bg-primary-container/5 text-primary-container"
             : "border-l-2 border-transparent text-on-surface-variant hover:bg-primary-container/5 hover:text-primary-container",
         ].join(" ")
       }
@@ -47,11 +47,11 @@ export default function AppShell({ children }) {
             alt="System Logo"
             className="w-8 h-8 rounded-full border border-outline-variant/20"
           />
-          <div>
+          <div className="flex flex-col min-w-0">
             <h1 className="font-display-lg text-primary text-xl uppercase tracking-widest leading-none">
               MISSION CONTROL
             </h1>
-            <p className="font-label-caps text-label-caps text-on-surface-variant mt-1">
+            <p className="font-label-caps text-label-caps text-on-surface-variant mt-1 text-xs">
               Active Session
             </p>
           </div>

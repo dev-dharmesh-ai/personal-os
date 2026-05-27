@@ -34,7 +34,7 @@ export default function HomeScreen() {
               >
                 <div className="flex items-center gap-4">
                   <div
-                    className={`w-3.5 h-3.5 rounded-sm border border-outline-variant/40 bg-[#0D0D0D] flex-shrink-0 ${
+                    className={`w-5 h-5 rounded-sm border border-outline-variant/40 bg-[#0D0D0D] flex-shrink-0 ${
                       task.done ? "bg-secondary-fixed border-secondary-fixed" : ""
                     }`}
                   >
