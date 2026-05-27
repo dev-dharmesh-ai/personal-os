@@ -1,10 +1,8 @@
-import CardSurface from "./CardSurface.jsx";
-
 const iconStyle = { fontVariationSettings: "'FILL' 0" };
 
 export default function LockedCard({ title, subtitle }) {
   return (
-    <CardSurface className="relative overflow-hidden justify-center items-center min-h-[200px]">
+    <>
       <div className="absolute inset-0 opacity-20 pointer-events-none blur-sm bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjIiIGZpbGw9IiM1MjQ1MzQiLz48L3N2Zz4=')]" />
       <div className="z-10 flex flex-col items-center text-center p-4 bg-[#1A1A1A]/80 backdrop-blur-md rounded-lg border border-outline-variant/20">
         <span
@@ -18,6 +16,6 @@ export default function LockedCard({ title, subtitle }) {
         </h3>
         <p className="font-body-sm text-body-sm text-outline-variant">{subtitle}</p>
       </div>
-    </CardSurface>
+    </>
   );
 }
