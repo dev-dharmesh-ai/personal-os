@@ -28,7 +28,64 @@ export const tasks = [
 export const financeStats = {
   balance: 48320,
   delta: 2.4,
+  totalBalance: 48320,
+  deltaPercent: 2.4,
+  inflow: 125000,
+  outflow: 76680,
+  upcomingBills: 18500,
+  savingsGoal: 200000,
 };
+
+export const transactions = [
+  {
+    id: "tx-1",
+    name: "Salary Credit",
+    date: "2023-10-24",
+    category: "income",
+    type: "income",
+    amount: 125000,
+  },
+  {
+    id: "tx-2",
+    name: "Cloud Infrastructure",
+    date: "2023-10-23",
+    category: "infra",
+    type: "expense",
+    amount: 18400,
+  },
+  {
+    id: "tx-3",
+    name: "Team Dinner",
+    date: "2023-10-22",
+    category: "food",
+    type: "expense",
+    amount: 4250,
+  },
+  {
+    id: "tx-4",
+    name: "Airport Transfer",
+    date: "2023-10-21",
+    category: "travel",
+    type: "expense",
+    amount: 1800,
+  },
+  {
+    id: "tx-5",
+    name: "Electricity Bill",
+    date: "2023-10-20",
+    category: "utility",
+    type: "expense",
+    amount: 6230,
+  },
+  {
+    id: "tx-6",
+    name: "Office Supplies",
+    date: "2023-10-18",
+    category: "infra",
+    type: "expense",
+    amount: 3100,
+  },
+];
 
 export const journalEntries = [
   {
@@ -42,5 +99,6 @@ export const journalEntries = [
 export const mockData = {
   tasks,
   financeStats,
+  transactions,
   journalEntries,
 };
