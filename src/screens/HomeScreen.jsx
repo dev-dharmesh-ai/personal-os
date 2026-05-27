@@ -2,7 +2,6 @@ import { tasks, financeStats, journalEntries } from "../data/mockData.js";
 import CardSurface from "../components/ui/CardSurface.jsx";
 import PriorityBadge from "../components/ui/PriorityBadge.jsx";
 import PrimaryButton from "../components/ui/PrimaryButton.jsx";
-import ProgressBar from "../components/ui/ProgressBar.jsx";
 import DeltaBadge from "../components/ui/DeltaBadge.jsx";
 import LockedCard from "../components/ui/LockedCard.jsx";
 
@@ -11,10 +10,6 @@ const priorityDotClasses = {
   Medium: "bg-primary-container",
   Low: "bg-secondary-fixed",
 };
-
-const sparklinePath =
-  "M0 30 L25 24 L51 27 L76 18 L102 13 L127 19 L153 15 L178 10 L204 18 L229 14 L255 9 L280 6";
-const sparklineAreaPath = `${sparklinePath} L280 40 L0 40 Z`;
 
 export default function HomeScreen() {
   const todaysTasks = tasks.filter((task) => task.dueLabel.includes("Today"));
@@ -34,7 +29,7 @@ export default function HomeScreen() {
           <ul className="flex flex-col flex-1 border-t border-outline-variant/10">
             {todaysTasks.map((task) => (
               <li
-                className="flex items-center justify-between py-4 border-b border-outline-variant/10 group"
+                className="flex items-center justify-between py-5 border-b border-outline-variant/10 group"
                 key={task.id}
               >
                 <div className="flex items-center gap-4">
@@ -80,25 +75,8 @@ export default function HomeScreen() {
             <div className="font-data-lg text-display-lg text-secondary-fixed mb-2 tracking-tight">
               ₹{financeStats.balance.toLocaleString("en-IN")}
             </div>
-            <svg
-              width="100%"
-              height="40"
-              viewBox="0 0 280 40"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <path d={sparklineAreaPath} fill="#bcf54e" fillOpacity="0.07" />
-              <path
-                d={sparklinePath}
-                stroke="#bcf54e"
-                strokeWidth="0.8"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
           </div>
-          <div className="mt-8">
+          <div className="mt-16">
             <DeltaBadge value={financeStats.delta} label="vs last week" />
           </div>
         </CardSurface>
@@ -110,13 +88,10 @@ export default function HomeScreen() {
               {journalEntry.dateLabel}
             </span>
           </div>
-          <div className="mb-6 flex-1">
+          <div className="mb-8 flex-1">
             <p className="font-body-md text-body-lg text-on-surface-variant line-clamp-2 italic border-l-2 border-outline-variant/30 pl-4 py-1">
               &quot;{journalEntry.firstSentence}&quot;
             </p>
-          </div>
-          <div className="mb-6">
-            <ProgressBar value={60} />
           </div>
           <PrimaryButton>CONTINUE ENTRY</PrimaryButton>
         </CardSurface>

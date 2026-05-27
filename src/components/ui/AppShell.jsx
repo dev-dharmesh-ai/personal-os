@@ -42,10 +42,8 @@ export default function AppShell({ children }) {
     <div className="flex h-screen overflow-hidden bg-[#0D0D0D] text-on-surface font-body-md text-body-md">
       <nav className="fixed left-0 top-0 z-50 hidden h-full w-sidebar_width flex-col border-r border-outline-variant/20 bg-surface py-6 text-secondary md:flex">
         <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-primary-container text-on-primary-container">
-            <span className="material-symbols-outlined text-[20px]" style={iconStyle}>
-              grid_view
-            </span>
+          <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-primary-container">
+            <div className="absolute -right-1 top-1 h-7 w-7 rounded-full bg-on-primary-container/70" />
           </div>
           <div>
             <h1 className="font-label-caps text-label-caps uppercase text-primary-container">
