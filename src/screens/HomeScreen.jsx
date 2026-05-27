@@ -33,12 +33,15 @@ export default function HomeScreen() {
                 key={task.id}
               >
                 <div className="flex items-center gap-4">
-                  <input
-                    checked={task.done}
-                    className="w-5 h-5 rounded-sm border-outline-variant/50 bg-[#0D0D0D] text-primary-container focus:ring-primary-container focus:ring-offset-[#1A1A1A]"
-                    readOnly
-                    type="checkbox"
-                  />
+                  <div
+                    className={`w-3.5 h-3.5 rounded-sm border border-outline-variant/40 bg-[#0D0D0D] flex-shrink-0 ${
+                      task.done ? "bg-secondary-fixed border-secondary-fixed" : ""
+                    }`}
+                  >
+                    {task.done ? (
+                      <span className="text-[#0D0D0D] text-[10px] leading-none">✓</span>
+                    ) : null}
+                  </div>
                   <span
                     className={`font-body-lg text-body-lg text-on-surface group-hover:text-primary-container transition-colors ${
                       task.done ? "line-through" : ""

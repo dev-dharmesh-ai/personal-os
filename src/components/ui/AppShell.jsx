@@ -42,8 +42,8 @@ export default function AppShell({ children }) {
     <div className="flex h-screen overflow-hidden bg-[#0D0D0D] text-on-surface font-body-md text-body-md">
       <nav className="fixed left-0 top-0 z-50 hidden h-full w-sidebar_width flex-col border-r border-outline-variant/20 bg-surface py-6 text-secondary md:flex">
         <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-primary-container">
-            <div className="absolute -right-1 top-1 h-7 w-7 rounded-full bg-on-primary-container/70" />
+          <div className="relative w-9 h-9 rounded-full bg-primary-container flex items-center justify-center overflow-hidden">
+            <div className="absolute w-5 h-5 rounded-full bg-[#2a1f00] top-1 right-0 translate-x-1 -translate-y-1" />
           </div>
           <div>
             <h1 className="font-label-caps text-label-caps uppercase text-primary-container">
