@@ -24,8 +24,8 @@ function SidebarLink({ item }) {
         [
           "flex items-center gap-3 px-4 py-3 font-label-caps text-label-caps transition-colors",
           isActive
-            ? "border-l-2 border-secondary bg-secondary-container/5 text-secondary"
-            : "border-l-2 border-transparent text-on-surface-variant hover:bg-secondary-container/5 hover:text-secondary",
+            ? "border-l-2 border-primary-container bg-primary-container/5 text-primary-container"
+            : "border-l-2 border-transparent text-on-surface-variant hover:bg-primary-container/5 hover:text-primary-container",
         ].join(" ")
       }
     >
@@ -40,16 +40,34 @@ function SidebarLink({ item }) {
 export default function AppShell({ children }) {
   return (
     <div className="flex h-screen overflow-hidden bg-[#0D0D0D] text-on-surface font-body-md text-body-md">
-      <nav className="fixed left-0 top-0 z-50 hidden h-full w-sidebar_width flex-col border-r border-outline-variant/20 bg-surface py-6 text-secondary md:flex">
+      <nav className="fixed left-0 top-0 z-50 hidden h-full w-sidebar_width flex-col border-r border-outline-variant/20 bg-surface py-6 text-primary-container md:flex">
         <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="relative w-9 h-9 rounded-full bg-primary-container flex items-center justify-center overflow-hidden">
-            <div className="absolute w-5 h-5 rounded-full bg-[#2a1f00] top-1 right-0 translate-x-1 -translate-y-1" />
+          <div
+            className="relative w-9 h-9 rounded-full overflow-hidden flex-shrink-0"
+            style={{ background: "radial-gradient(circle at 60% 40%, #c17f24, #6b4200)" }}
+          >
+            <div
+              className="absolute rounded-full"
+              style={{ width: "18px", height: "18px", background: "#1a1000", top: "-4px", left: "-4px" }}
+            />
           </div>
           <div>
-            <h1 className="font-label-caps text-label-caps uppercase text-primary-container">
+            <h1
+              className="uppercase text-primary-container"
+              style={{
+                fontFamily: "JetBrains Mono",
+                fontSize: "11px",
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                lineHeight: 1.2,
+              }}
+            >
               MISSION CONTROL
             </h1>
-            <p className="mt-1 font-label-caps text-label-caps text-on-surface-variant">
+            <p
+              className="mt-[2px] normal-case text-on-surface-variant/50"
+              style={{ fontFamily: "JetBrains Mono", fontSize: "10px" }}
+            >
               Active Session
             </p>
           </div>
