@@ -1,11 +1,8 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DeltaBadge from "../components/ui/DeltaBadge";
 import ProgressBar from "../components/ui/ProgressBar";
 import PrimaryButton from "../components/ui/PrimaryButton";
-import {
-  transactions as mockTransactions,
-  financeStats,
-} from "../data/mockData";
+import { MOCK_USER_ID, isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 
 const categoryIcons = {
   income: { icon: "arrow_downward", className: "text-[#B8F04A]" },
@@ -78,12 +75,32 @@ function StatCard({ icon, iconClassName, wrapperClassName, label, value, fillCla
   );
 }
 
-export default function FinanceScreen() {
-  const [transactions, setTransactions] = useState(() =>
-    [...mockTransactions]
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 5)
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-3 p-4">
+      {[0, 1, 2, 3, 4].map((item) => (
+        <div className="h-16 animate-pulse rounded-lg bg-white/10" key={item} />
+      ))}
+    </div>
   );
+}
+
+function ErrorCard({ onRetry }) {
+  return (
+    <button
+      className="m-6 rounded-xl border border-error/60 bg-error/10 p-6 text-left font-body-md text-body-md text-error"
+      onClick={onRetry}
+      type="button"
+    >
+      Failed to load. Tap to retry.
+    </button>
+  );
+}
+
+export default function FinanceScreen() {
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [form, setForm] = useState({
     amount: "",
     description: "",
@@ -92,6 +109,54 @@ export default function FinanceScreen() {
     type: "expense",
   });
   const [txType, setTxType] = useState("expense");
+
+  const fetchTransactions = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    if (!isSupabaseConfigured) {
+      setError(new Error("Supabase is not configured."));
+      setLoading(false);
+      return;
+    }
+
+    const { data, error: fetchError } = await supabase
+      .from("transactions")
+      .select("*")
+      .eq("user_id", MOCK_USER_ID)
+      .order("created_at", { ascending: false });
+
+    if (fetchError) {
+      setError(fetchError);
+      setLoading(false);
+      return;
+    }
+
+    setTransactions(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
+
+  const financeStats = useMemo(() => {
+    const inflow = transactions
+      .filter((transaction) => transaction.type === "income")
+      .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+    const outflow = transactions
+      .filter((transaction) => transaction.type === "expense")
+      .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+
+    return {
+      totalBalance: inflow - outflow,
+      deltaPercent: 0,
+      inflow,
+      outflow,
+      upcomingBills: outflow,
+      savingsGoal: inflow,
+    };
+  }, [transactions]);
 
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -102,7 +167,7 @@ export default function FinanceScreen() {
     updateForm("type", type);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.amount || !form.description || !form.date) {
       return;
     }
@@ -113,17 +178,21 @@ export default function FinanceScreen() {
       return;
     }
 
-    setTransactions((current) => [
-      {
-        id: `tx-${Date.now()}`,
-        name: form.description,
-        date: form.date,
-        category: form.category,
-        type: txType,
-        amount: Math.abs(amount),
-      },
-      ...current,
-    ]);
+    const { error: insertError } = await supabase.from("transactions").insert({
+      user_id: MOCK_USER_ID,
+      name: form.description.trim(),
+      note: null,
+      date: form.date,
+      category: form.category,
+      type: txType,
+      amount: Math.abs(amount),
+    });
+
+    if (insertError) {
+      setError(insertError);
+      return;
+    }
+
     setForm({
       amount: "",
       description: "",
@@ -132,6 +201,7 @@ export default function FinanceScreen() {
       type: "expense",
     });
     setTxType("expense");
+    fetchTransactions();
   };
 
   return (
@@ -219,7 +289,12 @@ export default function FinanceScreen() {
           </div>
 
           <div className="overflow-y-auto flex-1 p-2">
-            {transactions.map((transaction) => {
+            {loading ? (
+              <LoadingSkeleton />
+            ) : error ? (
+              <ErrorCard onRetry={fetchTransactions} />
+            ) : (
+              transactions.map((transaction) => {
               const icon = categoryIcons[transaction.category] || categoryIcons.default;
               const badgeClass =
                 categoryBadgeClasses[transaction.category] || categoryBadgeClasses.default;
@@ -262,7 +337,8 @@ export default function FinanceScreen() {
                   </div>
                 </div>
               );
-            })}
+              })
+            )}
           </div>
         </div>
 

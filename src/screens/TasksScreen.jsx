@@ -1,18 +1,20 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import CardSurface from "../components/ui/CardSurface";
 import PriorityBadge from "../components/ui/PriorityBadge";
 import ProgressBar from "../components/ui/ProgressBar";
-import { tasks } from "../data/mockData";
+import { MOCK_USER_ID, isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function fmtDate(iso) {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso || "No date";
   return MONTHS[d.getMonth()] + " " + d.getDate();
 }
 
 function dueDateClass(iso) {
   const diff = Math.ceil((new Date(iso) - new Date()) / 86400000);
+  if (Number.isNaN(diff)) return "text-on-surface-variant";
   if (diff <= 0) return "text-error";
   if (diff <= 3) return "text-primary";
   return "text-on-surface-variant";
@@ -33,18 +35,24 @@ function isoFromDueLabel(task, index) {
 }
 
 function taskStatus(task, index) {
+  if (task.column === "wip") return "in-progress";
+  if (task.column === "done") return "done";
+  if (task.column === "todo") return "todo";
   if (task.status) return task.status;
-  if (task.done) return "done";
   if (index === 1) return "in-progress";
   return "todo";
 }
 
 function normalizedTask(task, index) {
-  const dueDate = task.dueDate || task.due || isoFromDueLabel(task, index);
+  const dueLabel = task.due_label || task.dueLabel;
+  const timeLabel = task.time_label || task.timeLabel;
+  const dueDate = task.dueDate || task.due || dueLabel || isoFromDueLabel(task, index);
 
   return {
     ...task,
-    category: task.category || [task.dueLabel, task.timeLabel].filter(Boolean).join(" / ") || "Operations",
+    dueLabel,
+    timeLabel,
+    category: task.project || task.category || [dueLabel, timeLabel].filter(Boolean).join(" / ") || "Operations",
     dueDate,
     progress: task.progress ?? (taskStatus(task, index) === "in-progress" ? 62 : 0),
     status: taskStatus(task, index),
@@ -172,32 +180,131 @@ function KanbanColumn({ label, state, items }) {
   );
 }
 
+function LoadingSkeleton() {
+  return (
+    <div className="flex flex-col gap-3 p-6">
+      {[0, 1, 2, 3].map((item) => (
+        <div className="h-14 animate-pulse rounded-lg bg-white/10" key={item} />
+      ))}
+    </div>
+  );
+}
+
+function ErrorCard({ onRetry }) {
+  return (
+    <button
+      className="m-6 rounded-xl border border-error/60 bg-error/10 p-6 text-left font-body-md text-body-md text-error"
+      onClick={onRetry}
+      type="button"
+    >
+      Failed to load. Tap to retry.
+    </button>
+  );
+}
+
 export default function TasksScreen() {
   const [view, setView] = useState("list");
-  const [doneTasks, setDoneTasks] = useState(
-    () => new Set(tasks.filter((t) => t.status === "done").map((t) => t.id)),
-  );
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [form, setForm] = useState({
+    title: "",
+    project: "",
+    due_label: "Today",
+    time_label: "",
+    priority: "Medium",
+    column: "todo",
+    estimate: "",
+  });
 
-  const rosterTasks = useMemo(() => tasks.map(normalizedTask), []);
-  const kanbanTasks = rosterTasks.map((task) => ({
-    ...task,
-    status: doneTasks.has(task.id) ? "done" : task.status,
-  }));
+  const fetchTasks = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    if (!isSupabaseConfigured) {
+      setError(new Error("Supabase is not configured."));
+      setLoading(false);
+      return;
+    }
+
+    const { data, error: fetchError } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", MOCK_USER_ID)
+      .order("created_at", { ascending: false });
+
+    if (fetchError) {
+      setError(fetchError);
+      setLoading(false);
+      return;
+    }
+
+    setTasks(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  const rosterTasks = useMemo(() => tasks.map(normalizedTask), [tasks]);
+  const kanbanTasks = rosterTasks;
 
   const todoTasks = kanbanTasks.filter((task) => task.status === "todo");
   const inProgressTasks = kanbanTasks.filter((task) => task.status === "in-progress");
-  const completedTasks = kanbanTasks.filter((task) => task.status === "done" || doneTasks.has(task.id));
+  const completedTasks = kanbanTasks.filter((task) => task.status === "done");
 
-  function toggleDone(taskId) {
-    setDoneTasks((current) => {
-      const next = new Set(current);
-      if (next.has(taskId)) {
-        next.delete(taskId);
-      } else {
-        next.add(taskId);
-      }
-      return next;
+  function updateForm(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleAddTask(event) {
+    event.preventDefault();
+
+    if (!form.title.trim()) return;
+
+    const { error: insertError } = await supabase.from("tasks").insert({
+      user_id: MOCK_USER_ID,
+      title: form.title.trim(),
+      project: form.project.trim() || null,
+      due_label: form.due_label.trim() || null,
+      time_label: form.time_label.trim() || null,
+      priority: form.priority,
+      column: form.column,
+      done: false,
+      estimate: form.estimate.trim() || null,
     });
+
+    if (insertError) {
+      setError(insertError);
+      return;
+    }
+
+    setForm({
+      title: "",
+      project: "",
+      due_label: "Today",
+      time_label: "",
+      priority: "Medium",
+      column: "todo",
+      estimate: "",
+    });
+    fetchTasks();
+  }
+
+  async function toggleDone(task) {
+    const { error: updateError } = await supabase
+      .from("tasks")
+      .update({ done: !task.done })
+      .eq("id", task.id)
+      .eq("user_id", MOCK_USER_ID);
+
+    if (updateError) {
+      setError(updateError);
+      return;
+    }
+
+    fetchTasks();
   }
 
   return (
@@ -244,40 +351,89 @@ export default function TasksScreen() {
             </div>
 
             <div className="flex flex-col">
-              {rosterTasks.map((task) => {
-                const done = doneTasks.has(task.id);
+              {loading ? (
+                <LoadingSkeleton />
+              ) : error ? (
+                <ErrorCard onRetry={fetchTasks} />
+              ) : (
+                rosterTasks.map((task) => {
+                  const done = task.done;
 
-                return (
-                  <div
-                    className="list-row flex items-center px-6 py-4 hover:bg-white/[0.02] border-b border-white/10 last:border-b-0"
-                    key={task.id}
-                  >
-                    <div className="w-10">
-                      <input
-                        checked={done}
-                        className="h-4 w-4 rounded border-white/20 bg-[#0D0D0D] text-primary"
-                        type="checkbox"
-                        onChange={() => toggleDone(task.id)}
-                      />
+                  return (
+                    <div
+                      className="list-row flex items-center px-6 py-4 hover:bg-white/[0.02] border-b border-white/10 last:border-b-0"
+                      key={task.id}
+                    >
+                      <div className="w-10">
+                        <input
+                          checked={done}
+                          className="h-4 w-4 rounded border-white/20 bg-[#0D0D0D] text-primary"
+                          type="checkbox"
+                          onChange={() => toggleDone(task)}
+                        />
+                      </div>
+                      <div className={`flex-1 ${done ? "opacity-50" : ""}`}>
+                        <h4 className={`font-body-md text-on-surface ${done ? "line-through" : ""}`}>
+                          {task.title}
+                        </h4>
+                        <p className="font-data-md text-[12px] text-on-surface-variant opacity-70">
+                          {task.category}
+                        </p>
+                      </div>
+                      <div className={`w-32 font-data-md ${dueDateClass(task.dueDate)} ${done ? "opacity-50" : ""}`}>
+                        {fmtDate(task.dueDate)}
+                      </div>
+                      <div className={`w-24 text-right ${done ? "opacity-50" : ""}`}>
+                        <StitchPriorityBadge priority={task.priority} />
+                      </div>
                     </div>
-                    <div className={`flex-1 ${done ? "opacity-50" : ""}`}>
-                      <h4 className={`font-body-md text-on-surface ${done ? "line-through" : ""}`}>
-                        {task.title}
-                      </h4>
-                      <p className="font-data-md text-[12px] text-on-surface-variant opacity-70">
-                        {task.category}
-                      </p>
-                    </div>
-                    <div className={`w-32 font-data-md ${dueDateClass(task.dueDate)} ${done ? "opacity-50" : ""}`}>
-                      {fmtDate(task.dueDate)}
-                    </div>
-                    <div className={`w-24 text-right ${done ? "opacity-50" : ""}`}>
-                      <StitchPriorityBadge priority={task.priority} />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
+          </CardSurface>
+
+          <CardSurface className="surface-card bg-[#1A1A1A] border border-white/20 rounded-xl p-6">
+            <form className="grid grid-cols-1 gap-4 md:grid-cols-6" onSubmit={handleAddTask}>
+              <input
+                className="md:col-span-2 bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
+                onChange={(event) => updateForm("title", event.target.value)}
+                placeholder="New task"
+                type="text"
+                value={form.title}
+              />
+              <input
+                className="bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
+                onChange={(event) => updateForm("project", event.target.value)}
+                placeholder="Project"
+                type="text"
+                value={form.project}
+              />
+              <select
+                className="bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
+                onChange={(event) => updateForm("priority", event.target.value)}
+                value={form.priority}
+              >
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+              <select
+                className="bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
+                onChange={(event) => updateForm("column", event.target.value)}
+                value={form.column}
+              >
+                <option value="todo">Todo</option>
+                <option value="wip">WIP</option>
+                <option value="done">Done</option>
+              </select>
+              <button
+                className="bg-[#F5A623] hover:bg-[#ffb955] text-black font-label-caps text-label-caps py-3 rounded-lg"
+                type="submit"
+              >
+                ADD TASK
+              </button>
+            </form>
           </CardSurface>
         </div>
 

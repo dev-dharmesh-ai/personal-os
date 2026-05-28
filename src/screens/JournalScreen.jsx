@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import GhostButton from "../components/ui/GhostButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
-import { journalEntries } from "../data/mockData";
+import { MOCK_USER_ID, isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 
 const MONTHS_LONG = [
   "January",
@@ -28,6 +28,11 @@ function parseEntryDate(entryOrIso) {
 
   if (entryOrIso?.date) {
     const parsed = new Date(entryOrIso.date);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  if (entryOrIso?.written_at) {
+    const parsed = new Date(entryOrIso.written_at);
     return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   }
 
@@ -70,7 +75,7 @@ function entryTitle(entry) {
 }
 
 function entryContent(entry) {
-  return entry?.content || (Array.isArray(entry?.body) ? entry.body.join("\n\n") : entry?.firstSentence || "");
+  return entry?.content || (Array.isArray(entry?.body) ? entry.body.join("\n\n") : entry?.body || entry?.firstSentence || "");
 }
 
 function entryParagraphs(entry) {
@@ -93,8 +98,6 @@ function JournalEntryForm({ onCancel, onSave }) {
   function handleSubmit(event) {
     event.preventDefault();
     onSave({
-      id: `journal-${Date.now()}`,
-      date: new Date().toISOString(),
       title: title.trim() || "Untitled Entry",
       content: content.trim(),
       body: content
@@ -128,6 +131,28 @@ function JournalEntryForm({ onCancel, onSave }) {
   );
 }
 
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-4 p-6">
+      {[0, 1, 2].map((item) => (
+        <div className="h-28 animate-pulse rounded-lg bg-white/10" key={item} />
+      ))}
+    </div>
+  );
+}
+
+function ErrorCard({ onRetry }) {
+  return (
+    <button
+      className="m-6 rounded-xl border border-error/60 bg-error/10 p-6 text-left font-body-md text-body-md text-error"
+      onClick={onRetry}
+      type="button"
+    >
+      Failed to load. Tap to retry.
+    </button>
+  );
+}
+
 function CriticalPath({ items }) {
   if (items.length === 0) return null;
 
@@ -158,19 +183,78 @@ function CriticalPath({ items }) {
 }
 
 export default function JournalScreen() {
-  const [entries, setEntries] = useState(journalEntries);
-  const [selectedId, setSelectedId] = useState(journalEntries[0]?.id ?? null);
+  const [entries, setEntries] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const selectedEntry = entries.find((entry) => entry.id === selectedId);
   const todayLabel = useMemo(() => fmtLong(new Date().toISOString()), []);
   const paragraphs = entryParagraphs(selectedEntry);
   const selectedContent = entryContent(selectedEntry);
 
-  function handleSave(newEntry) {
-    setEntries((current) => [newEntry, ...current]);
-    setSelectedId(newEntry.id);
+  const fetchEntries = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    if (!isSupabaseConfigured) {
+      setError(new Error("Supabase is not configured."));
+      setLoading(false);
+      return;
+    }
+
+    const { data, error: fetchError } = await supabase
+      .from("journal_entries")
+      .select("*")
+      .eq("user_id", MOCK_USER_ID)
+      .order("created_at", { ascending: false });
+
+    if (fetchError) {
+      setError(fetchError);
+      setLoading(false);
+      return;
+    }
+
+    setEntries(data || []);
+    setSelectedId((current) => {
+      if (current && data?.some((entry) => entry.id === current)) return current;
+      return data?.[0]?.id ?? null;
+    });
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchEntries();
+  }, [fetchEntries]);
+
+  async function handleSave(newEntry) {
+    const now = new Date();
+    const { data, error: insertError } = await supabase
+      .from("journal_entries")
+      .insert({
+        user_id: MOCK_USER_ID,
+        weekday: now.toLocaleDateString("en-US", { weekday: "long" }),
+        day: String(now.getDate()).padStart(2, "0"),
+        month: MONTHS_SHORT[now.getMonth()],
+        mood: null,
+        mood_tone: null,
+        title: newEntry.title,
+        body: newEntry.content,
+        written_at: now.toISOString(),
+        tags: [],
+      })
+      .select("*")
+      .single();
+
+    if (insertError) {
+      setError(insertError);
+      return;
+    }
+
+    setSelectedId(data.id);
     setShowNewForm(false);
+    fetchEntries();
   }
 
   return (
@@ -199,7 +283,12 @@ export default function JournalScreen() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {entries.map((entry) => {
+            {loading ? (
+              <LoadingSkeleton />
+            ) : error ? (
+              <ErrorCard onRetry={fetchEntries} />
+            ) : (
+              entries.map((entry) => {
               const selected = entry.id === selectedId && !showNewForm;
               const preview = entry.firstSentence || entryContent(entry);
 
@@ -233,11 +322,12 @@ export default function JournalScreen() {
                       selected ? "" : "opacity-70"
                     }`}
                   >
-                    {preview}
-                  </p>
-                </article>
+                  {preview}
+                </p>
+              </article>
               );
-            })}
+              })
+            )}
           </div>
 
           <div className="border-t border-outline-variant/20 bg-surface-container-high/50 p-6">
@@ -272,10 +362,10 @@ export default function JournalScreen() {
                       &bull; Local Time
                     </p>
                   </div>
-                  {selectedEntry.tag ? (
+                  {(selectedEntry.tag || selectedEntry.tags?.[0]) ? (
                     <div className="flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-3 py-1 font-label-caps text-label-caps text-primary">
                       <span className="material-symbols-outlined text-[14px]">bolt</span>
-                      <span>{selectedEntry.tag}</span>
+                      <span>{selectedEntry.tag || selectedEntry.tags[0]}</span>
                     </div>
                   ) : null}
                 </div>

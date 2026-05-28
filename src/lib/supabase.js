@@ -1,1 +1,1 @@
-export const supabase = null;
+export { MOCK_USER_ID, supabase } from "./supabaseClient";
