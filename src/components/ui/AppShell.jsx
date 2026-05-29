@@ -4,9 +4,9 @@ const iconStyle = { fontVariationSettings: "'FILL' 0" };
 
 const primaryNavItems = [
   { label: "Dashboard", icon: "grid_view", to: "/" },
-  { label: "Operations", icon: "terminal", to: "/tasks" },
-  { label: "Strategy", icon: "psychology", to: "/journal" },
-  { label: "Analytics", icon: "insights", to: "/finance" },
+  { label: "Tasks", icon: "terminal", to: "/tasks" },
+  { label: "Journal", icon: "psychology", to: "/journal" },
+  { label: "Finance", icon: "insights", to: "/finance" },
   { label: "Calendar", icon: "calendar_month", to: "/calendar" },
   { label: "Habit", icon: "routine", to: "/habits" },
   { label: "Nutrition", icon: "restaurant", to: "/nutrition" },
