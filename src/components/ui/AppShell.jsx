@@ -7,12 +7,14 @@ const primaryNavItems = [
   { label: "Operations", icon: "terminal", to: "/tasks" },
   { label: "Strategy", icon: "psychology", to: "/journal" },
   { label: "Analytics", icon: "insights", to: "/finance" },
-  { label: "Settings", icon: "settings", to: "/calendar" },
+  { label: "Calendar", icon: "calendar_month", to: "/calendar" },
+  { label: "Habit", icon: "routine", to: "/habits" },
+  { label: "Nutrition", icon: "restaurant", to: "/nutrition" },
 ];
 
 const bottomNavItems = [
-  { label: "Support", icon: "help_outline", to: "/habits" },
-  { label: "Sign Out", icon: "logout", to: "/nutrition" },
+  { label: "Settings", icon: "settings", to: "/settings" },
+  { label: "Sign Out", icon: "logout", to: "/sign-out" },
 ];
 
 function SidebarLink({ item }) {
