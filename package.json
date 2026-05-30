@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:tasks": "bash scripts/sync-screen-branch.sh tasks",
+    "sync:finance": "bash scripts/sync-screen-branch.sh finance"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
