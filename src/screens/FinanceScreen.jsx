@@ -1,7 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import DeltaBadge from "../components/ui/DeltaBadge";
-import ProgressBar from "../components/ui/ProgressBar";
-import PrimaryButton from "../components/ui/PrimaryButton";
 import { MOCK_USER_ID, isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 
 const categoryIcons = {
@@ -37,7 +34,9 @@ const selectOptions = [
 ];
 
 function fmtINR(amount) {
-  return "₹" + Math.abs(amount).toLocaleString("en-IN");
+  const value = Number(amount || 0);
+  const formattedValue = Math.abs(value).toLocaleString("en-IN");
+  return value < 0 ? "-₹" + formattedValue : "₹" + formattedValue;
 }
 
 function formatDate(date) {
@@ -101,6 +100,8 @@ export default function FinanceScreen() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [formError, setFormError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     amount: "",
     description: "",
@@ -124,6 +125,7 @@ export default function FinanceScreen() {
       .from("transactions")
       .select("*")
       .eq("user_id", MOCK_USER_ID)
+      .order("date", { ascending: false })
       .order("created_at", { ascending: false });
 
     if (fetchError) {
@@ -150,7 +152,7 @@ export default function FinanceScreen() {
 
     return {
       totalBalance: inflow - outflow,
-      deltaPercent: 0,
+      deltaPercent: null,
       inflow,
       outflow,
       upcomingBills: outflow,
@@ -159,6 +161,7 @@ export default function FinanceScreen() {
   }, [transactions]);
 
   const updateForm = (field, value) => {
+    setFormError("");
     setForm((current) => ({ ...current, [field]: value }));
   };
 
@@ -168,40 +171,66 @@ export default function FinanceScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!form.amount || !form.description || !form.date) {
-      return;
-    }
+    if (submitting) return;
 
+    const description = form.description.trim();
     const amount = Number(form.amount);
 
-    if (!Number.isFinite(amount)) {
+    if (!form.amount) {
+      setFormError("Enter an amount.");
       return;
     }
 
-    const { error: insertError } = await supabase.from("transactions").insert({
-      user_id: MOCK_USER_ID,
-      name: form.description.trim(),
-      note: null,
-      date: form.date,
-      category: form.category,
-      type: txType,
-      amount: Math.abs(amount),
-    });
-
-    if (insertError) {
-      setError(insertError);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFormError("Enter a valid amount greater than zero.");
       return;
     }
 
-    setForm({
-      amount: "",
-      description: "",
-      category: "food",
-      date: "",
-      type: "expense",
-    });
-    setTxType("expense");
-    fetchTransactions();
+    if (!description) {
+      setFormError("Enter a description.");
+      return;
+    }
+
+    if (!form.date) {
+      setFormError("Choose a transaction date.");
+      return;
+    }
+
+    setSubmitting(true);
+    setFormError("");
+
+    try {
+      const { error: insertError } = await supabase.from("transactions").insert({
+        user_id: MOCK_USER_ID,
+        name: description,
+        note: null,
+        date: form.date,
+        category: form.category,
+        type: txType,
+        amount: Math.abs(amount),
+      });
+
+      if (insertError) {
+        setError(insertError);
+        setFormError("Could not save entry. Please try again.");
+        return;
+      }
+
+      setForm({
+        amount: "",
+        description: "",
+        category: "food",
+        date: "",
+        type: "expense",
+      });
+      setTxType("expense");
+      await fetchTransactions();
+    } catch (submitError) {
+      setError(submitError);
+      setFormError("Could not save entry. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -209,24 +238,26 @@ export default function FinanceScreen() {
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
         <div className="lg:col-span-8 bg-[#1A1A1A] border border-white/20 rounded-xl p-6 relative overflow-hidden hover:border-white/40 transition-colors min-h-[280px] flex flex-col">
           <div className="absolute inset-0 bg-gradient-to-br from-primary-container/5 to-transparent pointer-events-none" />
-          <div className="relative flex items-start justify-between gap-6">
-            <div>
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+            <div className="min-w-0">
               <p className="font-label-caps text-label-caps text-on-surface-variant">
                 TOTAL BALANCE
               </p>
-              <div className="mt-4 font-data-lg text-[48px] leading-none tracking-tight text-on-surface">
+              <div className="mt-4 break-words font-data-lg text-[clamp(2rem,8vw,3rem)] leading-tight tracking-tight text-on-surface">
                 {fmtINR(financeStats.totalBalance)}
                 <span className="text-on-surface-variant">.00</span>
               </div>
             </div>
-            <div className="bg-[#B8F04A]/10 px-3 py-1.5 rounded-full border border-[#B8F04A]/20 flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[#B8F04A] text-[16px]">
-                trending_up
-              </span>
-              <span className="text-[#B8F04A] font-data-md text-data-md">
-                +{financeStats.deltaPercent}%
-              </span>
-            </div>
+            {typeof financeStats.deltaPercent === "number" ? (
+              <div className="self-start bg-[#B8F04A]/10 px-3 py-1.5 rounded-full border border-[#B8F04A]/20 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[#B8F04A] text-[16px]">
+                  trending_up
+                </span>
+                <span className="text-[#B8F04A] font-data-md text-data-md">
+                  +{financeStats.deltaPercent}%
+                </span>
+              </div>
+            ) : null}
           </div>
 
           <div className="relative border-t border-white/10 pt-6 mt-auto flex items-end gap-6">
@@ -425,13 +456,21 @@ export default function FinanceScreen() {
               </button>
             </div>
 
-            <button
-              className="mt-auto w-full bg-[#F5A623] hover:bg-[#ffb955] text-black font-label-caps text-label-caps py-3 rounded-lg"
-              onClick={handleSubmit}
-              type="button"
-            >
-              SUBMIT ENTRY
-            </button>
+            <div className="mt-auto space-y-3">
+              {formError ? (
+                <p className="font-body-sm text-body-sm text-error" role="alert">
+                  {formError}
+                </p>
+              ) : null}
+              <button
+                className="w-full rounded-lg bg-[#F5A623] py-3 font-label-caps text-label-caps text-black transition-colors hover:bg-[#ffb955] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={submitting}
+                onClick={handleSubmit}
+                type="button"
+              >
+                {submitting ? "SAVING..." : "SUBMIT ENTRY"}
+              </button>
+            </div>
           </div>
         </div>
       </section>
