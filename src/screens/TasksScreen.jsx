@@ -40,6 +40,8 @@ function isoFromDueLabel(task, index) {
     date.setDate(date.getDate() + 1);
   } else if (normalizedLabel === "yesterday") {
     date.setDate(date.getDate() - 1);
+  } else if (normalizedLabel === "next week") {
+    date.setDate(date.getDate() + 7);
   } else if (NORMALIZED_WEEKDAYS.includes(normalizedLabel)) {
     const targetDay = NORMALIZED_WEEKDAYS.findIndex((day) => day === normalizedLabel);
     const daysUntilTarget = (targetDay - date.getDay() + 7) % 7;
@@ -229,6 +231,8 @@ export default function TasksScreen() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [savingTaskIds, setSavingTaskIds] = useState(() => new Set());
+  const [isAddingTask, setIsAddingTask] = useState(false);
   const [form, setForm] = useState({
     title: "",
     project: "",
@@ -283,7 +287,10 @@ export default function TasksScreen() {
   async function handleAddTask(event) {
     event.preventDefault();
 
-    if (!form.title.trim()) return;
+    if (!form.title.trim() || isAddingTask) return;
+
+    setIsAddingTask(true);
+    setError(null);
 
     const { error: insertError } = await supabase.from("tasks").insert({
       user_id: MOCK_USER_ID,
@@ -299,6 +306,7 @@ export default function TasksScreen() {
 
     if (insertError) {
       setError(insertError);
+      setIsAddingTask(false);
       return;
     }
 
@@ -311,12 +319,26 @@ export default function TasksScreen() {
       column: "todo",
       estimate: "",
     });
-    fetchTasks();
+    await fetchTasks();
+    setIsAddingTask(false);
   }
 
   async function toggleDone(task) {
+    if (savingTaskIds.has(task.id)) return;
+
     const nextDone = !task.done;
-    const nextColumn = nextDone ? "done" : task.column === "done" ? "todo" : task.column;
+    const nextColumn = !nextDone && task.column === "done" ? "todo" : task.column;
+    const previousTasks = tasks;
+
+    setError(null);
+    setSavingTaskIds((current) => new Set(current).add(task.id));
+    setTasks((currentTasks) =>
+      currentTasks.map((currentTask) =>
+        currentTask.id === task.id
+          ? { ...currentTask, done: nextDone, column: nextColumn }
+          : currentTask,
+      ),
+    );
 
     const { error: updateError } = await supabase
       .from("tasks")
@@ -325,10 +347,21 @@ export default function TasksScreen() {
       .eq("user_id", MOCK_USER_ID);
 
     if (updateError) {
+      setTasks(previousTasks);
       setError(updateError);
+      setSavingTaskIds((current) => {
+        const nextIds = new Set(current);
+        nextIds.delete(task.id);
+        return nextIds;
+      });
       return;
     }
 
+    setSavingTaskIds((current) => {
+      const nextIds = new Set(current);
+      nextIds.delete(task.id);
+      return nextIds;
+    });
     fetchTasks();
   }
 
@@ -384,16 +417,18 @@ export default function TasksScreen() {
                 ) : (
                   rosterTasks.map((task) => {
                     const done = task.done;
+                    const saving = savingTaskIds.has(task.id);
 
                     return (
                       <div
-                        className="list-row grid grid-cols-[auto_1fr] gap-x-3 gap-y-3 px-4 py-4 hover:bg-white/[0.02] border-b border-white/10 last:border-b-0 md:flex md:items-center md:px-6"
+                        className={`list-row grid grid-cols-[auto_1fr] gap-x-3 gap-y-3 px-4 py-4 hover:bg-white/[0.02] border-b border-white/10 last:border-b-0 md:flex md:items-center md:px-6 ${saving ? "opacity-70" : ""}`}
                         key={task.id}
                       >
                         <div className="w-6 pt-1 md:w-10 md:pt-0">
                           <input
                             checked={done}
                             className="h-4 w-4 rounded border-white/20 bg-[#0D0D0D] text-primary"
+                            disabled={saving}
                             type="checkbox"
                             onChange={() => toggleDone(task)}
                           />
@@ -420,7 +455,7 @@ export default function TasksScreen() {
             </CardSurface>
 
             <CardSurface className="surface-card bg-[#1A1A1A] border border-white/20 rounded-xl p-6">
-              <form className="grid grid-cols-1 gap-4 md:grid-cols-6" onSubmit={handleAddTask}>
+              <form className="grid grid-cols-1 gap-4 md:grid-cols-8" onSubmit={handleAddTask}>
                 <input
                   className="md:col-span-2 bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
                   onChange={(event) => updateForm("title", event.target.value)}
@@ -434,6 +469,30 @@ export default function TasksScreen() {
                   placeholder="Project"
                   type="text"
                   value={form.project}
+                />
+                <select
+                  className="bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
+                  onChange={(event) => updateForm("due_label", event.target.value)}
+                  value={form.due_label}
+                >
+                  <option value="Today">Today</option>
+                  <option value="Tomorrow">Tomorrow</option>
+                  <option value="Friday">Friday</option>
+                  <option value="Next week">Next week</option>
+                </select>
+                <input
+                  className="bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
+                  onChange={(event) => updateForm("time_label", event.target.value)}
+                  placeholder="Time"
+                  type="time"
+                  value={form.time_label}
+                />
+                <input
+                  className="bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
+                  onChange={(event) => updateForm("estimate", event.target.value)}
+                  placeholder="Estimate"
+                  type="text"
+                  value={form.estimate}
                 />
                 <select
                   className="bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none"
@@ -454,10 +513,11 @@ export default function TasksScreen() {
                   <option value="done">Done</option>
                 </select>
                 <button
-                  className="bg-[#F5A623] hover:bg-[#ffb955] text-black font-label-caps text-label-caps py-3 rounded-lg"
+                  className="bg-[#F5A623] hover:bg-[#ffb955] text-black font-label-caps text-label-caps py-3 rounded-lg disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isAddingTask || !form.title.trim()}
                   type="submit"
                 >
-                  ADD TASK
+                  {isAddingTask ? "ADDING" : "ADD TASK"}
                 </button>
               </form>
             </CardSurface>
