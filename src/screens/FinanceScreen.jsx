@@ -37,6 +37,8 @@ const incomeOptions = [
   { value: "income", label: "Income" },
 ];
 
+const smokeTestNamePatterns = [/^smoke income\b/i, /^cab expense$/i];
+
 function fmtINR(amount) {
   const value = Number(amount || 0);
   const formattedValue = Math.abs(value).toLocaleString("en-IN");
@@ -66,6 +68,21 @@ function toISODate(date) {
   return date.toISOString().slice(0, 10);
 }
 
+function getTodayDateValue() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function isSmokeTestTransaction(transaction) {
+  const name = String(transaction.name || "").trim();
+
+  return smokeTestNamePatterns.some((pattern) => pattern.test(name));
+}
+
 function buildDemoTransactions() {
   const today = new Date();
 
@@ -83,7 +100,7 @@ function buildDemoTransactions() {
 }
 
 function sortTransactions(transactions) {
-  return [...transactions].sort((a, b) => {
+  return transactions.filter((transaction) => !isSmokeTestTransaction(transaction)).sort((a, b) => {
     const dateDiff =
       (toDateValue(b.date)?.getTime() || 0) - (toDateValue(a.date)?.getTime() || 0);
 
@@ -125,6 +142,41 @@ function calculateNet(transactions) {
     if (transaction.type === "expense") return total - amount;
     return total;
   }, 0);
+}
+
+function suggestCategory(description, type) {
+  if (type === "income") return "income";
+
+  const text = description.toLowerCase();
+
+  if (/(uber|ola|cab|taxi|metro|fuel|flight|train|parking)/.test(text)) return "travel";
+  if (/(rent|electric|electricity|internet|mobile|recharge|utility|bill)/.test(text)) {
+    return "utility";
+  }
+  if (/(aws|vercel|server|domain|hosting|software|subscription|workspace)/.test(text)) {
+    return "infra";
+  }
+
+  return "food";
+}
+
+function getInsight(transactions) {
+  const expenseTotals = transactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce((totals, transaction) => {
+      const category = transaction.category || "default";
+      totals[category] = (totals[category] || 0) + Number(transaction.amount || 0);
+      return totals;
+    }, {});
+  const topCategory = Object.entries(expenseTotals).sort((a, b) => b[1] - a[1])[0];
+
+  if (!topCategory) {
+    return "Add a few entries to surface spending patterns.";
+  }
+
+  return `${categoryLabels[topCategory[0]] || topCategory[0]} is your largest spend bucket at ${fmtINR(
+    topCategory[1],
+  )}.`;
 }
 
 function FieldLabel({ children }) {
@@ -195,7 +247,7 @@ export default function FinanceScreen() {
     amount: "",
     description: "",
     category: "food",
-    date: "",
+    date: getTodayDateValue(),
   });
   const [txType, setTxType] = useState("expense");
   const selectOptions = txType === "income" ? incomeOptions : expenseOptions;
@@ -212,7 +264,7 @@ export default function FinanceScreen() {
     setError(null);
 
     if (!isSupabaseConfigured) {
-      useDemoTransactions("Live sync is not configured. Showing demo data.");
+      useDemoTransactions("Demo mode: sample transactions are shown locally.");
       return;
     }
 
@@ -224,7 +276,7 @@ export default function FinanceScreen() {
       .order("created_at", { ascending: false });
 
     if (fetchError) {
-      useDemoTransactions("Live sync is unavailable. Showing demo data.");
+      useDemoTransactions("Live data unavailable. Demo transactions are shown locally.");
       return;
     }
 
@@ -292,6 +344,12 @@ export default function FinanceScreen() {
     }));
   };
 
+  const handleSuggestCategory = () => {
+    const category = suggestCategory(form.description, txType);
+    setFormError("");
+    setForm((current) => ({ ...current, category }));
+  };
+
   const addLocalTransaction = (transaction) => {
     setTransactions((current) => sortTransactions([transaction, ...current]));
     setDataNotice("Entry saved locally for this demo session.");
@@ -350,7 +408,7 @@ export default function FinanceScreen() {
           amount: "",
           description: "",
           category: "food",
-          date: "",
+          date: getTodayDateValue(),
         });
         setTxType("expense");
         return;
@@ -376,7 +434,7 @@ export default function FinanceScreen() {
         amount: "",
         description: "",
         category: "food",
-        date: "",
+        date: getTodayDateValue(),
       });
       setTxType("expense");
       await fetchTransactions();
@@ -439,6 +497,22 @@ export default function FinanceScreen() {
               <p className="mt-2 font-data-lg text-data-lg text-on-surface">
                 {fmtINR(financeStats.outflow)}
               </p>
+            </div>
+          </div>
+
+          <div className="relative mt-6 rounded-lg border border-[#B8F04A]/20 bg-[#B8F04A]/10 p-4">
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined text-[20px] text-[#B8F04A]">
+                auto_awesome
+              </span>
+              <div>
+                <p className="font-label-caps text-label-caps text-[#B8F04A]">
+                  AI CASHFLOW INSIGHT
+                </p>
+                <p className="mt-1 font-body-sm text-body-sm text-on-surface">
+                  {getInsight(transactions)}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -572,7 +646,17 @@ export default function FinanceScreen() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2 min-w-0">
-                <FieldLabel>CATEGORY</FieldLabel>
+                <div className="flex items-center justify-between gap-2">
+                  <FieldLabel>CATEGORY</FieldLabel>
+                  <button
+                    className="inline-flex items-center gap-1 rounded-md border border-[#B8F04A]/30 px-2 py-1 font-label-caps text-[10px] text-[#B8F04A] transition-colors hover:bg-[#B8F04A]/10"
+                    onClick={handleSuggestCategory}
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
+                    AI
+                  </button>
+                </div>
                 <select
                   className="w-full bg-[#0D0D0D] border border-white/20 rounded-lg px-4 py-2.5 text-on-surface font-body-sm text-body-sm focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none appearance-none"
                   onChange={(event) => updateForm("category", event.target.value)}
