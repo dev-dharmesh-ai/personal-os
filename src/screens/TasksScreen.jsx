@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import CardSurface from "../components/ui/CardSurface";
 import PriorityBadge from "../components/ui/PriorityBadge";
 import ProgressBar from "../components/ui/ProgressBar";
+import { tasks as demoTasks } from "../data/mockData";
 import { MOCK_USER_ID, isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAY_MS = 86400000;
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const NORMALIZED_WEEKDAYS = WEEKDAYS.map((day) => day.toLowerCase());
+const PRIORITY_RANK = { HIGH: 0, MED: 1, MEDIUM: 1, LOW: 2 };
+const STATUS_RANK = { "in-progress": 0, todo: 1, done: 2 };
 
 function fmtDate(iso) {
   const d = new Date(iso);
@@ -54,9 +57,8 @@ function isoFromDueLabel(task, index) {
 }
 
 function taskStatus(task, index) {
-  if (task.done) return "done";
+  if (task.done || task.column === "done") return "done";
   if (task.column === "wip") return "in-progress";
-  if (task.column === "done") return "done";
   if (task.column === "todo") return "todo";
   if (task.status) return task.status;
   if (index === 1) return "in-progress";
@@ -67,16 +69,32 @@ function normalizedTask(task, index) {
   const dueLabel = task.due_label || task.dueLabel;
   const timeLabel = task.time_label || task.timeLabel;
   const dueDate = task.dueDate || task.due || isoFromDueLabel(task, index);
+  const done = Boolean(task.done || task.column === "done");
+  const status = taskStatus({ ...task, done }, index);
 
   return {
     ...task,
+    done,
     dueLabel,
     timeLabel,
     category: task.project || task.category || [dueLabel, timeLabel].filter(Boolean).join(" / ") || "Operations",
     dueDate,
-    progress: task.progress ?? (taskStatus(task, index) === "in-progress" ? 62 : 0),
-    status: taskStatus(task, index),
+    progress: task.progress ?? (status === "in-progress" ? 62 : 0),
+    status,
   };
+}
+
+function compareTasks(a, b) {
+  const statusDiff = (STATUS_RANK[a.status] ?? 3) - (STATUS_RANK[b.status] ?? 3);
+  if (statusDiff !== 0) return statusDiff;
+
+  const dueDiff = new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+  if (!Number.isNaN(dueDiff) && dueDiff !== 0) return dueDiff;
+
+  const priorityDiff = (PRIORITY_RANK[priorityLabel(a.priority)] ?? 3) - (PRIORITY_RANK[priorityLabel(b.priority)] ?? 3);
+  if (priorityDiff !== 0) return priorityDiff;
+
+  return a.title.localeCompare(b.title);
 }
 
 const priorityClasses = {
@@ -117,9 +135,14 @@ function ToggleButton({ active, children, onClick }) {
   );
 }
 
-function KanbanCard({ task, state }) {
+function KanbanCard({ task, state, onMove, saving }) {
   const inProgress = state === "in-progress";
   const done = state === "done";
+  const actions = [
+    { label: "Todo", column: "todo" },
+    { label: "WIP", column: "wip" },
+    { label: "Done", column: "done" },
+  ].filter((action) => action.column !== task.column);
 
   return (
     <CardSurface
@@ -153,12 +176,25 @@ function KanbanCard({ task, state }) {
             <ProgressBar value={task.progress} />
           </div>
         ) : null}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {actions.map((action) => (
+            <button
+              className="rounded border border-white/10 px-2 py-1 font-label-caps text-[10px] text-on-surface-variant transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-50"
+              disabled={saving}
+              key={action.column}
+              onClick={() => onMove(task, action.column)}
+              type="button"
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
       </div>
     </CardSurface>
   );
 }
 
-function KanbanColumn({ label, state, items }) {
+function KanbanColumn({ label, state, items, onMove, savingTaskIds }) {
   const isInProgress = state === "in-progress";
   const isDone = state === "done";
 
@@ -193,7 +229,15 @@ function KanbanColumn({ label, state, items }) {
 
       <div className="flex flex-col gap-4">
         {items.length ? (
-          items.map((task) => <KanbanCard key={task.id} task={task} state={state} />)
+          items.map((task) => (
+            <KanbanCard
+              key={task.id}
+              onMove={onMove}
+              saving={savingTaskIds.has(task.id)}
+              state={state}
+              task={task}
+            />
+          ))
         ) : (
           <div className="rounded-lg border border-dashed border-white/10 px-4 py-8 text-center font-body-sm text-body-sm text-on-surface-variant">
             No tasks
@@ -214,25 +258,16 @@ function LoadingSkeleton() {
   );
 }
 
-function ErrorCard({ onRetry }) {
-  return (
-    <button
-      className="m-6 rounded-xl border border-error/60 bg-error/10 p-6 text-left font-body-md text-body-md text-error"
-      onClick={onRetry}
-      type="button"
-    >
-      Failed to load. Tap to retry.
-    </button>
-  );
-}
-
 export default function TasksScreen() {
   const [view, setView] = useState("list");
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [loadNotice, setLoadNotice] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const [dataSource, setDataSource] = useState("live");
   const [savingTaskIds, setSavingTaskIds] = useState(() => new Set());
   const [isAddingTask, setIsAddingTask] = useState(false);
+  const [aiPlan, setAiPlan] = useState(null);
   const [form, setForm] = useState({
     title: "",
     project: "",
@@ -245,10 +280,12 @@ export default function TasksScreen() {
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setLoadNotice(null);
 
     if (!isSupabaseConfigured) {
-      setError(new Error("Supabase is not configured."));
+      setTasks(demoTasks);
+      setDataSource("demo");
+      setLoadNotice("Demo tasks loaded because Supabase is not configured.");
       setLoading(false);
       return;
     }
@@ -260,12 +297,15 @@ export default function TasksScreen() {
       .order("created_at", { ascending: false });
 
     if (fetchError) {
-      setError(fetchError);
+      setTasks(demoTasks);
+      setDataSource("demo");
+      setLoadNotice("Demo tasks loaded because live tasks could not be reached.");
       setLoading(false);
       return;
     }
 
     setTasks(data || []);
+    setDataSource("live");
     setLoading(false);
   }, []);
 
@@ -273,7 +313,7 @@ export default function TasksScreen() {
     fetchTasks();
   }, [fetchTasks]);
 
-  const rosterTasks = useMemo(() => tasks.map(normalizedTask), [tasks]);
+  const rosterTasks = useMemo(() => tasks.map(normalizedTask).sort(compareTasks), [tasks]);
   const kanbanTasks = rosterTasks;
 
   const todoTasks = kanbanTasks.filter((task) => task.status === "todo");
@@ -290,10 +330,10 @@ export default function TasksScreen() {
     if (!form.title.trim() || isAddingTask) return;
 
     setIsAddingTask(true);
-    setError(null);
+    setActionError(null);
 
-    const { error: insertError } = await supabase.from("tasks").insert({
-      user_id: MOCK_USER_ID,
+    const newTask = {
+      id: `demo-${Date.now()}`,
       title: form.title.trim(),
       project: form.project.trim() || null,
       due_label: form.due_label.trim() || null,
@@ -302,14 +342,40 @@ export default function TasksScreen() {
       column: form.column,
       done: form.column === "done",
       estimate: form.estimate.trim() || null,
-    });
+      created_at: new Date().toISOString(),
+    };
 
-    if (insertError) {
-      setError(insertError);
+    if (dataSource === "demo") {
+      setTasks((currentTasks) => [newTask, ...currentTasks]);
+      resetForm();
       setIsAddingTask(false);
       return;
     }
 
+    const { error: insertError } = await supabase.from("tasks").insert({
+      user_id: MOCK_USER_ID,
+      title: newTask.title,
+      project: newTask.project,
+      due_label: newTask.due_label,
+      time_label: newTask.time_label,
+      priority: newTask.priority,
+      column: newTask.column,
+      done: newTask.done,
+      estimate: newTask.estimate,
+    });
+
+    if (insertError) {
+      setActionError("Task could not be added. Existing tasks are still available.");
+      setIsAddingTask(false);
+      return;
+    }
+
+    resetForm();
+    await fetchTasks();
+    setIsAddingTask(false);
+  }
+
+  function resetForm() {
     setForm({
       title: "",
       project: "",
@@ -319,36 +385,41 @@ export default function TasksScreen() {
       column: "todo",
       estimate: "",
     });
-    await fetchTasks();
-    setIsAddingTask(false);
   }
 
-  async function toggleDone(task) {
+  async function updateTask(task, updates) {
     if (savingTaskIds.has(task.id)) return;
 
-    const nextDone = !task.done;
-    const nextColumn = !nextDone && task.column === "done" ? "todo" : task.column;
     const previousTasks = tasks;
 
-    setError(null);
+    setActionError(null);
     setSavingTaskIds((current) => new Set(current).add(task.id));
     setTasks((currentTasks) =>
       currentTasks.map((currentTask) =>
         currentTask.id === task.id
-          ? { ...currentTask, done: nextDone, column: nextColumn }
+          ? { ...currentTask, ...updates }
           : currentTask,
       ),
     );
 
+    if (dataSource === "demo") {
+      setSavingTaskIds((current) => {
+        const nextIds = new Set(current);
+        nextIds.delete(task.id);
+        return nextIds;
+      });
+      return;
+    }
+
     const { error: updateError } = await supabase
       .from("tasks")
-      .update({ done: nextDone, column: nextColumn })
+      .update(updates)
       .eq("id", task.id)
       .eq("user_id", MOCK_USER_ID);
 
     if (updateError) {
       setTasks(previousTasks);
-      setError(updateError);
+      setActionError("Task update failed. Your visible task list was restored.");
       setSavingTaskIds((current) => {
         const nextIds = new Set(current);
         nextIds.delete(task.id);
@@ -363,6 +434,32 @@ export default function TasksScreen() {
       return nextIds;
     });
     fetchTasks();
+  }
+
+  function toggleDone(task) {
+    const nextDone = !task.done;
+    const nextColumn = !nextDone && task.column === "done" ? "todo" : task.column;
+    updateTask(task, { done: nextDone, column: nextColumn });
+  }
+
+  function moveTask(task, column) {
+    updateTask(task, { column, done: column === "done" });
+  }
+
+  function generateAiPlan() {
+    const openTasks = rosterTasks.filter((task) => task.status !== "done");
+    const focusTasks = openTasks.slice(0, 3);
+    const highPriorityCount = openTasks.filter((task) => priorityLabel(task.priority) === "HIGH").length;
+
+    setAiPlan({
+      focusTasks,
+      summary: focusTasks.length
+        ? `Focus on ${focusTasks[0].title} first, then batch ${Math.max(openTasks.length - 1, 0)} remaining open task${openTasks.length === 2 ? "" : "s"}.`
+        : "No open tasks. Use the next block for review and planning.",
+      risk: highPriorityCount
+        ? `${highPriorityCount} high-priority task${highPriorityCount === 1 ? "" : "s"} need attention before lower-priority work.`
+        : "No high-priority blockers detected.",
+    });
   }
 
   return (
@@ -384,6 +481,61 @@ export default function TasksScreen() {
           </ToggleButton>
         </div>
       </section>
+
+      <CardSurface className="surface-card bg-[#1A1A1A] border border-white/20 rounded-xl p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="font-label-caps text-label-caps text-primary">AI TASK COACH</p>
+            <h3 className="font-headline-md text-headline-md text-on-surface">
+              Today&apos;s Execution Plan
+            </h3>
+            <p className="font-body-sm text-body-sm text-on-surface-variant">
+              Generates a demo-ready plan from priority, due date, and workflow state.
+            </p>
+          </div>
+          <button
+            className="rounded bg-primary-container px-4 py-3 font-label-caps text-label-caps text-on-primary-container transition-opacity hover:opacity-90"
+            onClick={generateAiPlan}
+            type="button"
+          >
+            AI PLAN MY DAY
+          </button>
+        </div>
+        {aiPlan ? (
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-lg border border-white/10 bg-[#0D0D0D] p-4">
+              <p className="font-label-caps text-label-caps text-on-surface-variant">NEXT MOVE</p>
+              <p className="mt-2 font-body-sm text-body-sm text-on-surface">{aiPlan.summary}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-[#0D0D0D] p-4">
+              <p className="font-label-caps text-label-caps text-on-surface-variant">RISK</p>
+              <p className="mt-2 font-body-sm text-body-sm text-on-surface">{aiPlan.risk}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-[#0D0D0D] p-4">
+              <p className="font-label-caps text-label-caps text-on-surface-variant">FOCUS STACK</p>
+              <ol className="mt-2 space-y-1 font-body-sm text-body-sm text-on-surface">
+                {aiPlan.focusTasks.length ? (
+                  aiPlan.focusTasks.map((task) => <li key={task.id}>{task.title}</li>)
+                ) : (
+                  <li>Review completed work</li>
+                )}
+              </ol>
+            </div>
+          </div>
+        ) : null}
+      </CardSurface>
+
+      {loadNotice ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 font-body-sm text-body-sm text-primary">
+          {loadNotice}
+        </div>
+      ) : null}
+
+      {actionError ? (
+        <div className="rounded-lg border border-error/40 bg-error/10 px-4 py-3 font-body-sm text-body-sm text-error">
+          {actionError}
+        </div>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-gutter">
         {view === "list" ? (
@@ -412,8 +564,10 @@ export default function TasksScreen() {
               <div className="flex flex-col">
                 {loading ? (
                   <LoadingSkeleton />
-                ) : error ? (
-                  <ErrorCard onRetry={fetchTasks} />
+                ) : rosterTasks.length === 0 ? (
+                  <div className="p-6 font-body-md text-body-md text-on-surface-variant">
+                    No tasks yet. Add the first task below.
+                  </div>
                 ) : (
                   rosterTasks.map((task) => {
                     const done = task.done;
@@ -531,9 +685,27 @@ export default function TasksScreen() {
             </h3>
 
             <div className="flex gap-4 overflow-x-auto">
-              <KanbanColumn label="TO DO" state="todo" items={todoTasks} />
-              <KanbanColumn label="IN PROGRESS" state="in-progress" items={inProgressTasks} />
-              <KanbanColumn label="DONE" state="done" items={completedTasks} />
+              <KanbanColumn
+                items={todoTasks}
+                label="TO DO"
+                onMove={moveTask}
+                savingTaskIds={savingTaskIds}
+                state="todo"
+              />
+              <KanbanColumn
+                items={inProgressTasks}
+                label="IN PROGRESS"
+                onMove={moveTask}
+                savingTaskIds={savingTaskIds}
+                state="in-progress"
+              />
+              <KanbanColumn
+                items={completedTasks}
+                label="DONE"
+                onMove={moveTask}
+                savingTaskIds={savingTaskIds}
+                state="done"
+              />
             </div>
           </div>
         ) : null}
