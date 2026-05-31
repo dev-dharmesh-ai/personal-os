@@ -8,13 +8,13 @@ One command center for a solo professional's tasks, finances, and journal.
 ![Hackathon](https://img.shields.io/badge/Hackathon-OpenAI_%C3%97_Outskill_AI_Builders-F5A623)
 ![Status](https://img.shields.io/badge/Status-MVP-BCF54E)
 
-Personal OS is a dark-mode desktop dashboard for solo professionals, freelancers, and indie builders who manage work, money, and personal notes across too many disconnected tools. The app currently ships a React/Vite MVP with a dashboard, task execution screen, finance tracker, journal reader/editor, and placeholder modules for calendar, habits, and nutrition.
+Personal OS is a dark-mode desktop dashboard for solo professionals, freelancers, and indie builders who manage work, money, and personal notes across too many disconnected tools. The app currently ships a React/Vite MVP with a dashboard, task execution screen, finance tracker, journal reader/editor, habit tracker, and placeholder modules for calendar and nutrition.
 
 ## Screenshots / Demo
 
 ### Dashboard
 
-![Dashboard showing tasks, liquid assets, journal preview, and locked habit tracker](docs/assets/screenshot-dashboard.png)
+![Dashboard showing tasks, liquid assets, journal preview, and daily operating signal](docs/assets/screenshot-dashboard.png)
 
 ### Task Execution
 
@@ -49,7 +49,7 @@ Solo professionals often run their work-life from a stack of disconnected tools:
 - **Today's task summary**: Filters mock tasks due today, shows a due-today count, task titles, completion state, priority dots, and scheduled times.
 - **Liquid assets card**: Displays current balance in INR and a positive/negative delta badge.
 - **Journal preview**: Shows the latest journal date and first sentence with a continue-entry call to action.
-- **Locked habit module**: Shows the habit tracker as offline with a blurred placeholder treatment and v2.1 coming-soon message.
+- **Habit module preview**: Links into a weekly habit tracker with local completion toggles and live streak counts.
 
 ### Task Execution
 
@@ -78,10 +78,15 @@ Solo professionals often run their work-life from a stack of disconnected tools:
 - **Critical path support**: Renders optional checklist-style critical path items when entry data includes them.
 - **Edit and trash controls**: Displays reader actions for future edit/delete behavior.
 
+### Habits
+
+- **Weekly tracker**: Shows core habits across Monday through Sunday with seeded completion state.
+- **Local completion toggles**: Lets users mark or clear each habit day and immediately updates the UI.
+- **Streak summary**: Calculates active streaks from the current week instead of showing a static placeholder.
+
 ### Placeholder Modules
 
 - **Calendar**: Route exists and displays `Calendar - coming next`.
-- **Habits**: Route exists and displays `Habits - coming next`.
 - **Nutrition**: Route exists and displays `Nutrition - coming next`.
 
 ## Tech Stack
@@ -142,8 +147,8 @@ Solo professionals often run their work-life from a stack of disconnected tools:
 |   `-- screens/
 |       |-- CalendarScreen.jsx - Static coming-next calendar route.
 |       |-- FinanceScreen.jsx - Finance dashboard, transaction list, and local transaction form.
-|       |-- HabitsScreen.jsx - Static coming-next habits route.
-|       |-- HomeScreen.jsx - Dashboard widgets for tasks, assets, journal preview, and locked habits.
+|       |-- HabitsScreen.jsx - Weekly habit tracker with local toggles and streak counts.
+|       |-- HomeScreen.jsx - Dashboard widgets for tasks, assets, journal preview, and daily operating signal.
 |       |-- JournalScreen.jsx - Journal entry list, reader panel, composer, and local entry state.
 |       |-- NutritionScreen.jsx - Static coming-next nutrition route.
 |       `-- TasksScreen.jsx - Task roster, completion state, segmented control, and Kanban preview.
@@ -218,7 +223,7 @@ Codex was used to scaffold the app shell, shared UI primitives, dashboard, task 
 
 - [ ] Replace `mockData.js` with real Supabase tables for tasks, transactions, and journal entries.
 - [ ] Add the Supabase client package and environment-driven configuration.
-- [ ] Make Calendar, Habits, and Nutrition full modules instead of coming-next screens.
+- [ ] Make Calendar and Nutrition full modules instead of coming-next screens.
 - [ ] Add persistent edit/delete behavior for journal entries and transactions.
 - [ ] Add AI-queryable personal memory over journal, task, and finance data.
 - [ ] Add the planned Telegram or voice-capture flow for remote task and note entry.
