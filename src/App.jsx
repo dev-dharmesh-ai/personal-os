@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/ui/AppShell.jsx";
 import CalendarScreen from "./screens/CalendarScreen.jsx";
 import FinanceScreen from "./screens/FinanceScreen.jsx";
@@ -23,6 +23,7 @@ export default function App() {
         <Route path="/nutrition" element={<NutritionScreen />} />
         <Route path="/settings" element={<SettingsScreen />} />
         <Route path="/sign-out" element={<SignOutScreen />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>
   );
