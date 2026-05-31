@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { transactions as mockTransactions } from "../data/mockData.js";
 import { MOCK_USER_ID, isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 
 const categoryIcons = {
@@ -25,11 +26,14 @@ const categoryLabels = {
   utility: "Utility",
 };
 
-const selectOptions = [
+const expenseOptions = [
   { value: "food", label: "Food & Dining" },
   { value: "infra", label: "Infrastructure" },
   { value: "travel", label: "Travel" },
   { value: "utility", label: "Utilities" },
+];
+
+const incomeOptions = [
   { value: "income", label: "Income" },
 ];
 
@@ -40,11 +44,87 @@ function fmtINR(amount) {
 }
 
 function formatDate(date) {
-  return new Date(date).toLocaleDateString("en-IN", {
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "No date";
+  }
+
+  return parsedDate.toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
+}
+
+function toDateValue(date) {
+  const parsedDate = new Date(date);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function toISODate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function buildDemoTransactions() {
+  const today = new Date();
+
+  return mockTransactions.map((transaction, index) => {
+    const transactionDate = new Date(today);
+    transactionDate.setDate(today.getDate() - index);
+
+    return {
+      ...transaction,
+      id: `demo-${transaction.id}`,
+      date: toISODate(transactionDate),
+      created_at: transactionDate.toISOString(),
+    };
+  });
+}
+
+function sortTransactions(transactions) {
+  return [...transactions].sort((a, b) => {
+    const dateDiff =
+      (toDateValue(b.date)?.getTime() || 0) - (toDateValue(a.date)?.getTime() || 0);
+
+    if (dateDiff !== 0) return dateDiff;
+
+    return (
+      (toDateValue(b.created_at)?.getTime() || 0) -
+      (toDateValue(a.created_at)?.getTime() || 0)
+    );
+  });
+}
+
+function isSameMonth(date, referenceDate) {
+  const parsedDate = toDateValue(date);
+
+  return (
+    parsedDate &&
+    parsedDate.getFullYear() === referenceDate.getFullYear() &&
+    parsedDate.getMonth() === referenceDate.getMonth()
+  );
+}
+
+function isPreviousMonth(date, referenceDate) {
+  const parsedDate = toDateValue(date);
+  const previousMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - 1, 1);
+
+  return (
+    parsedDate &&
+    parsedDate.getFullYear() === previousMonth.getFullYear() &&
+    parsedDate.getMonth() === previousMonth.getMonth()
+  );
+}
+
+function calculateNet(transactions) {
+  return transactions.reduce((total, transaction) => {
+    const amount = Number(transaction.amount || 0);
+
+    if (transaction.type === "income") return total + amount;
+    if (transaction.type === "expense") return total - amount;
+    return total;
+  }, 0);
 }
 
 function FieldLabel({ children }) {
@@ -96,10 +176,19 @@ function ErrorCard({ onRetry }) {
   );
 }
 
+function EmptyState() {
+  return (
+    <div className="m-6 rounded-xl border border-white/10 bg-white/5 p-6 font-body-md text-body-md text-on-surface-variant">
+      No transactions yet. Add your first entry to start tracking cashflow.
+    </div>
+  );
+}
+
 export default function FinanceScreen() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [dataNotice, setDataNotice] = useState("");
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -107,17 +196,23 @@ export default function FinanceScreen() {
     description: "",
     category: "food",
     date: "",
-    type: "expense",
   });
   const [txType, setTxType] = useState("expense");
+  const selectOptions = txType === "income" ? incomeOptions : expenseOptions;
+
+  const useDemoTransactions = useCallback((notice) => {
+    setTransactions(sortTransactions(buildDemoTransactions()));
+    setDataNotice(notice);
+    setError(null);
+    setLoading(false);
+  }, []);
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     if (!isSupabaseConfigured) {
-      setError(new Error("Supabase is not configured."));
-      setLoading(false);
+      useDemoTransactions("Live sync is not configured. Showing demo data.");
       return;
     }
 
@@ -129,34 +224,56 @@ export default function FinanceScreen() {
       .order("created_at", { ascending: false });
 
     if (fetchError) {
-      setError(fetchError);
-      setLoading(false);
+      useDemoTransactions("Live sync is unavailable. Showing demo data.");
       return;
     }
 
-    setTransactions(data || []);
+    setTransactions(sortTransactions(data || []));
+    setDataNotice("");
     setLoading(false);
-  }, []);
+  }, [useDemoTransactions]);
 
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
 
   const financeStats = useMemo(() => {
-    const inflow = transactions
+    const today = new Date();
+    const currentMonthTransactions = transactions.filter((transaction) =>
+      isSameMonth(transaction.date || transaction.created_at, today),
+    );
+    const previousMonthTransactions = transactions.filter((transaction) =>
+      isPreviousMonth(transaction.date || transaction.created_at, today),
+    );
+    const inflow = currentMonthTransactions
       .filter((transaction) => transaction.type === "income")
       .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
-    const outflow = transactions
+    const outflow = currentMonthTransactions
       .filter((transaction) => transaction.type === "expense")
       .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+    const monthlyNet = inflow - outflow;
+    const previousMonthNet = calculateNet(previousMonthTransactions);
+    const deltaPercent = previousMonthNet
+      ? Number((((monthlyNet - previousMonthNet) / Math.abs(previousMonthNet)) * 100).toFixed(1))
+      : null;
+    const spendProgress = Math.min((outflow / Math.max(inflow, outflow, 1)) * 100, 100);
+    const savingsCapacity = Math.max(monthlyNet, 0);
+    const savingsProgress = Math.min((savingsCapacity / Math.max(inflow, 1)) * 100, 100);
 
     return {
-      totalBalance: inflow - outflow,
-      deltaPercent: null,
+      totalBalance: calculateNet(transactions),
+      deltaPercent,
+      financeSignal: monthlyNet >= 0 ? "Net positive this month" : "Spend above income",
+      financeSignalClass:
+        monthlyNet >= 0
+          ? "border-[#B8F04A]/20 bg-[#B8F04A]/10 text-[#B8F04A]"
+          : "border-[#F5A623]/20 bg-[#F5A623]/10 text-[#F5A623]",
       inflow,
       outflow,
-      upcomingBills: outflow,
-      savingsGoal: inflow,
+      monthlySpend: outflow,
+      savingsCapacity,
+      spendProgress: `${spendProgress}%`,
+      savingsProgress: `${savingsProgress}%`,
     };
   }, [transactions]);
 
@@ -167,7 +284,17 @@ export default function FinanceScreen() {
 
   const handleTypeChange = (type) => {
     setTxType(type);
-    updateForm("type", type);
+    setFormError("");
+    setForm((current) => ({
+      ...current,
+      category:
+        type === "income" ? "income" : current.category === "income" ? "food" : current.category,
+    }));
+  };
+
+  const addLocalTransaction = (transaction) => {
+    setTransactions((current) => sortTransactions([transaction, ...current]));
+    setDataNotice("Entry saved locally for this demo session.");
   };
 
   const handleSubmit = async () => {
@@ -196,23 +323,52 @@ export default function FinanceScreen() {
       return;
     }
 
+    if (!toDateValue(form.date)) {
+      setFormError("Choose a valid transaction date.");
+      return;
+    }
+
     setSubmitting(true);
     setFormError("");
 
+    const newTransaction = {
+      id: `local-${Date.now()}`,
+      user_id: MOCK_USER_ID,
+      name: description,
+      note: null,
+      date: form.date,
+      category: form.category,
+      type: txType,
+      amount: Math.abs(amount),
+      created_at: new Date().toISOString(),
+    };
+
     try {
+      if (!isSupabaseConfigured || dataNotice) {
+        addLocalTransaction(newTransaction);
+        setForm({
+          amount: "",
+          description: "",
+          category: "food",
+          date: "",
+        });
+        setTxType("expense");
+        return;
+      }
+
       const { error: insertError } = await supabase.from("transactions").insert({
-        user_id: MOCK_USER_ID,
-        name: description,
-        note: null,
-        date: form.date,
-        category: form.category,
-        type: txType,
-        amount: Math.abs(amount),
+        user_id: newTransaction.user_id,
+        name: newTransaction.name,
+        note: newTransaction.note,
+        date: newTransaction.date,
+        category: newTransaction.category,
+        type: newTransaction.type,
+        amount: newTransaction.amount,
       });
 
       if (insertError) {
-        setError(insertError);
-        setFormError("Could not save entry. Please try again.");
+        addLocalTransaction(newTransaction);
+        setFormError("Live sync failed. Entry saved locally for the demo.");
         return;
       }
 
@@ -221,13 +377,12 @@ export default function FinanceScreen() {
         description: "",
         category: "food",
         date: "",
-        type: "expense",
       });
       setTxType("expense");
       await fetchTransactions();
     } catch (submitError) {
-      setError(submitError);
-      setFormError("Could not save entry. Please try again.");
+      addLocalTransaction(newTransaction);
+      setFormError("Live sync failed. Entry saved locally for the demo.");
     } finally {
       setSubmitting(false);
     }
@@ -248,16 +403,23 @@ export default function FinanceScreen() {
                 <span className="text-on-surface-variant">.00</span>
               </div>
             </div>
-            {typeof financeStats.deltaPercent === "number" ? (
-              <div className="self-start bg-[#B8F04A]/10 px-3 py-1.5 rounded-full border border-[#B8F04A]/20 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[#B8F04A] text-[16px]">
-                  trending_up
-                </span>
-                <span className="text-[#B8F04A] font-data-md text-data-md">
-                  +{financeStats.deltaPercent}%
-                </span>
-              </div>
-            ) : null}
+            <div
+              className={`self-start px-3 py-1.5 rounded-full border flex items-center gap-1.5 ${financeStats.financeSignalClass}`}
+            >
+              {typeof financeStats.deltaPercent === "number" ? (
+                <>
+                  <span className="material-symbols-outlined text-[16px]">
+                    {financeStats.deltaPercent >= 0 ? "trending_up" : "trending_down"}
+                  </span>
+                  <span className="font-data-md text-data-md">
+                    {financeStats.deltaPercent > 0 ? "+" : ""}
+                    {financeStats.deltaPercent}%
+                  </span>
+                </>
+              ) : (
+                <span className="font-data-md text-data-md">{financeStats.financeSignal}</span>
+              )}
+            </div>
           </div>
 
           <div className="relative border-t border-white/10 pt-6 mt-auto flex items-end gap-6">
@@ -286,37 +448,39 @@ export default function FinanceScreen() {
             icon="credit_card"
             iconClassName="text-[#F5A623]"
             wrapperClassName="bg-[#F5A623]/10"
-            label="UPCOMING BILLS"
-            value={financeStats.upcomingBills}
+            label="MONTHLY SPEND"
+            value={financeStats.monthlySpend}
             fillClassName="bg-[#F5A623]"
-            fillWidth="65%"
+            fillWidth={financeStats.spendProgress}
           />
           <StatCard
             icon="savings"
             iconClassName="text-[#B8F04A]"
             wrapperClassName="bg-[#B8F04A]/10"
-            label="SAVINGS GOAL"
-            value={financeStats.savingsGoal}
+            label="SAVINGS CAPACITY"
+            value={financeStats.savingsCapacity}
             fillClassName="bg-[#B8F04A]"
-            fillWidth="40%"
+            fillWidth={financeStats.savingsProgress}
           />
         </div>
       </section>
 
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
         <div className="lg:col-span-8 bg-[#1A1A1A] border border-white/20 rounded-xl flex flex-col h-[500px]">
-          <div className="p-6 border-b border-white/10 flex items-center justify-between">
-            <h2 className="font-label-caps text-label-caps text-on-surface">
-              RECENT TRANSACTIONS
-            </h2>
-            <button
-              className="text-primary font-label-caps text-label-caps flex items-center gap-1"
-              onClick={() => {}}
-              type="button"
-            >
-              VIEW ALL
-              <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-            </button>
+          <div className="p-6 border-b border-white/10 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-label-caps text-label-caps text-on-surface">
+                RECENT TRANSACTIONS
+              </h2>
+              {dataNotice ? (
+                <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
+                  {dataNotice}
+                </p>
+              ) : null}
+            </div>
+            <span className="rounded-full bg-white/5 px-3 py-1 font-label-caps text-label-caps text-on-surface-variant">
+              {transactions.length} ITEMS
+            </span>
           </div>
 
           <div className="overflow-y-auto flex-1 p-2">
@@ -324,50 +488,52 @@ export default function FinanceScreen() {
               <LoadingSkeleton />
             ) : error ? (
               <ErrorCard onRetry={fetchTransactions} />
+            ) : transactions.length === 0 ? (
+              <EmptyState />
             ) : (
               transactions.map((transaction) => {
-              const icon = categoryIcons[transaction.category] || categoryIcons.default;
-              const badgeClass =
-                categoryBadgeClasses[transaction.category] || categoryBadgeClasses.default;
-              const isIncome = transaction.type === "income";
+                const icon = categoryIcons[transaction.category] || categoryIcons.default;
+                const badgeClass =
+                  categoryBadgeClasses[transaction.category] || categoryBadgeClasses.default;
+                const isIncome = transaction.type === "income";
 
-              return (
-                <div
-                  className="flex items-center justify-between p-4 hover:bg-white/5 rounded-lg border-b border-white/5 last:border-0 transition-colors"
-                  key={transaction.id}
-                >
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-surface-container border border-white/10 flex items-center justify-center flex-shrink-0">
-                      <span className={`material-symbols-outlined ${icon.className}`}>
-                        {icon.icon}
-                      </span>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-body-md text-body-md text-on-surface font-medium truncate">
-                        {transaction.name}
-                      </p>
-                      <div className="mt-1 flex items-center gap-2">
-                        <span className="font-data-md text-[12px] text-on-surface-variant">
-                          {formatDate(transaction.date)}
-                        </span>
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-label-caps ${badgeClass}`}
-                        >
-                          {categoryLabels[transaction.category] || transaction.category}
+                return (
+                  <div
+                    className="flex items-center justify-between p-4 hover:bg-white/5 rounded-lg border-b border-white/5 last:border-0 transition-colors"
+                    key={transaction.id}
+                  >
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-surface-container border border-white/10 flex items-center justify-center flex-shrink-0">
+                        <span className={`material-symbols-outlined ${icon.className}`}>
+                          {icon.icon}
                         </span>
                       </div>
+                      <div className="min-w-0">
+                        <p className="font-body-md text-body-md text-on-surface font-medium truncate">
+                          {transaction.name}
+                        </p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="font-data-md text-[12px] text-on-surface-variant">
+                            {formatDate(transaction.date)}
+                          </span>
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-label-caps ${badgeClass}`}
+                          >
+                            {categoryLabels[transaction.category] || transaction.category}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      className={`font-data-lg text-data-lg text-right ${
+                        isIncome ? "text-[#B8F04A]" : "text-on-surface"
+                      }`}
+                    >
+                      {isIncome ? "+" : "-"}
+                      {fmtINR(transaction.amount)}
                     </div>
                   </div>
-                  <div
-                    className={`font-data-lg text-data-lg text-right ${
-                      isIncome ? "text-[#B8F04A]" : "text-on-surface"
-                    }`}
-                  >
-                    {isIncome ? "+" : "-"}
-                    {fmtINR(transaction.amount)}
-                  </div>
-                </div>
-              );
+                );
               })
             )}
           </div>
