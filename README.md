@@ -98,8 +98,8 @@ Solo professionals often run their work-life from a stack of disconnected tools:
 | JavaScript ES modules | Application language/module format | `package.json` sets `"type": "module"`. |
 | Google Fonts | Typography | Loads DM Serif Display, Inter, and JetBrains Mono from `fonts.googleapis.com`. |
 | Material Symbols Outlined | Icon system | Loaded from Google Fonts and used throughout navigation, cards, buttons, and forms. |
-| Mock data module | Local MVP data source | `src/data/mockData.js` drives tasks, finance stats, transactions, and journal entries. |
-| Supabase stub | Future persistence seam | `src/lib/supabase.js` currently exports `null`; no Supabase package or environment variables are installed in this codebase. |
+| Mock data module | Demo fallback data | `src/data/mockData.js` provides fallback tasks, finance stats, transactions, and journal entries. |
+| Supabase | Runtime persistence | `@supabase/supabase-js` reads and writes configured task, finance, and journal tables. |
 | ReportLab-generated PDFs | Supporting deliverables | Product brief and investor pitch PDFs in `../deliverables/`. |
 
 ## Project Structure
@@ -124,7 +124,7 @@ Solo professionals often run their work-life from a stack of disconnected tools:
 |   |-- App.jsx - Route map for dashboard, tasks, finance, journal, calendar, habits, and nutrition.
 |   |-- components/
 |   |   `-- ui/
-|   |       |-- AppShell.jsx - Shared sidebar, header, navigation, logo, avatar, and layout frame.
+|   |       |-- AppShell.jsx - Shared sidebar, mobile nav, AI brief, live date, logo, avatar, and layout frame.
 |   |       |-- CardSurface.jsx - Reusable dark card wrapper.
 |   |       |-- DeltaBadge.jsx - Percentage badge with trending-up/down icon and positive/error styling.
 |   |       |-- GhostButton.jsx - Outlined secondary button.
@@ -136,7 +136,8 @@ Solo professionals often run their work-life from a stack of disconnected tools:
 |   |   `-- mockData.js - Hardcoded tasks, finance stats, transactions, and journal entries.
 |   |-- index.css - Tailwind directives, base layout rules, card surface styling, and Material Symbols settings.
 |   |-- lib/
-|   |   `-- supabase.js - Placeholder Supabase export set to `null`.
+|   |   |-- supabase.js - Shared Supabase exports.
+|   |   `-- supabaseClient.js - Environment-driven Supabase client and MVP user id.
 |   |-- main.jsx - React root setup with `BrowserRouter` and `React.StrictMode`.
 |   `-- screens/
 |       |-- CalendarScreen.jsx - Static coming-next calendar route.
@@ -189,15 +190,15 @@ Preview the built app with:
 npm run preview
 ```
 
-No environment variables are required for the current MVP. `src/lib/supabase.js` is a placeholder that exports `null`, and the application reads from `src/data/mockData.js`.
+Supabase sync is enabled when `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are present. Without those values, the app falls back to demo data from `src/data/mockData.js`.
 
 ## How It Works
 
 `src/main.jsx` mounts the React app into `#root` and wraps it in `BrowserRouter`. `src/App.jsx` places every route inside `AppShell`, so the sidebar, header, and page frame persist while the active screen changes.
 
-The dashboard reads from `mockData.js` and summarizes today's tasks, financial balance, and the latest journal entry. The task screen normalizes the same task data, stores completed task IDs in local React state, and renders both a roster table and workflow columns. The finance screen initializes the five most recent transactions from mock data, validates the new-entry form, and prepends local transactions into component state. The journal screen stores entries locally, supports selecting existing entries, and creates new timestamped entries from the composer.
+The dashboard, task screen, finance screen, and journal screen load Supabase-backed records when configured and fall back to demo data or local state where needed. `AppShell` owns the persistent sidebar, mobile navigation, live date, global task CTA, and a runtime AI Daily Brief that summarizes task, finance, and journal signals before the user opens a module.
 
-There is no runtime OpenAI or AI API integration in the code. AI appears in the project workflow: supporting documents state that OpenAI Codex was used as the primary build engine with Google Stitch design references and a structured brief. Supabase is referenced in the product materials and user-flow diagram as the intended cloud memory layer, but the current codebase keeps it stubbed.
+The runtime AI moments are intentionally lightweight for the MVP: the shell-level AI Daily Brief and task-level AI Task Coach generate guidance from in-app signals without requiring an external API key during the demo. Supporting documents state that OpenAI Codex was used as the primary build engine with Google Stitch design references and a structured brief.
 
 ## Hackathon Context
 
@@ -211,7 +212,7 @@ There is no runtime OpenAI or AI API integration in the code. AI appears in the 
 | Design workflow | Planning notes compare Google Stitch and Claude Design, then proceed with Google Stitch because of visual quality. |
 | Targeted judging signals | The project targets a unique but scoped idea, a finished working prototype, strong visual design, visible AI leverage, and build-in-public storytelling. |
 
-Codex was used to scaffold the app shell, shared UI primitives, dashboard, task manager, finance tracker, and journal. The code reflects an MVP-first approach: ship the live daily command center screens first, keep future modules visible as placeholders, and reserve persistence/AI memory for a later pass.
+Codex was used to scaffold the app shell, shared UI primitives, dashboard, task manager, finance tracker, journal, Supabase-backed persistence paths, and the visible runtime AI guidance moments. The code reflects an MVP-first approach: ship the live daily command center screens first, keep future modules visible as placeholders, and reserve deeper AI-queryable memory for a later pass.
 
 ## Roadmap
 
