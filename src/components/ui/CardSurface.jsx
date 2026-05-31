@@ -1,3 +1,7 @@
-export default function CardSurface({ children, className = "" }) {
-  return <div className={`card-surface flex flex-col ${className}`}>{children}</div>;
+export default function CardSurface({ children, className = "", ...props }) {
+  return (
+    <div className={`card-surface flex flex-col ${className}`} {...props}>
+      {children}
+    </div>
+  );
 }
