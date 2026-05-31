@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { journalEntries } from "../data/mockData.js";
+import { useNavigate } from "react-router-dom";
 import CardSurface from "../components/ui/CardSurface.jsx";
 import PrimaryButton from "../components/ui/PrimaryButton.jsx";
 import DeltaBadge from "../components/ui/DeltaBadge.jsx";
-import LockedCard from "../components/ui/LockedCard.jsx";
 import { MOCK_USER_ID, isSupabaseConfigured, supabase } from "../lib/supabaseClient.js";
 
 const priorityDotClasses = {
@@ -30,6 +29,25 @@ function normalizeTask(task) {
     timeLabel: task.time_label || task.timeLabel || "--",
     priority: task.priority || "Low",
   };
+}
+
+function parseEntryDate(entry) {
+  const parsed = new Date(entry?.written_at || entry?.created_at);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function journalDateLabel(entry) {
+  const parsed = parseEntryDate(entry);
+  if (parsed) {
+    return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  return [entry?.month, entry?.day].filter(Boolean).join(" ") || "No entry";
+}
+
+function journalPreview(entry) {
+  const text = entry?.body || entry?.content || "";
+  return text.trim() || "Open your journal to capture today's notes.";
 }
 
 function isOpenTask(task) {
@@ -126,14 +144,72 @@ function LiquidAssetsValue({ balance, loading, error }) {
   );
 }
 
+function JournalPreview({ entry, loading, error, onRetry }) {
+  if (loading) {
+    return (
+      <div className="mb-8 flex-1 space-y-3">
+        <div className="h-5 w-full animate-pulse rounded bg-white/10" />
+        <div className="h-5 w-3/4 animate-pulse rounded bg-white/10" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <button
+        className="mb-8 flex-1 rounded-lg border border-error/50 bg-error/10 px-4 py-3 text-left font-body-md text-body-md text-error"
+        onClick={onRetry}
+        type="button"
+      >
+        Failed to load latest journal. Tap to retry.
+      </button>
+    );
+  }
+
+  return (
+    <div className="mb-8 flex-1">
+      <p className="line-clamp-2 border-l-2 border-outline-variant/30 py-1 pl-4 font-body-md text-body-lg italic text-on-surface-variant">
+        &quot;{journalPreview(entry)}&quot;
+      </p>
+    </div>
+  );
+}
+
+function buildDailyBrief({ balance, dueTodayCount, journalEntry, openTaskCount }) {
+  const snippets = [];
+
+  if (dueTodayCount > 0) {
+    snippets.push(`${dueTodayCount} task${dueTodayCount === 1 ? "" : "s"} need attention today.`);
+  } else if (openTaskCount > 0) {
+    snippets.push("No tasks are due today; the backlog is ready for a clean review.");
+  } else {
+    snippets.push("Your task list is clear.");
+  }
+
+  snippets.push(
+    balance >= 0
+      ? `Liquid assets are positive at ${fmtINR(balance)}.`
+      : `Cashflow needs attention at ${fmtINR(balance)}.`,
+  );
+
+  if (journalEntry) {
+    snippets.push(`Latest journal signal: ${journalEntry.title || "recent reflection"}.`);
+  }
+
+  return snippets.join(" ");
+}
+
 export default function HomeScreen() {
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [financeLoading, setFinanceLoading] = useState(true);
   const [financeError, setFinanceError] = useState(null);
-  const journalEntry = journalEntries[0];
+  const [journalEntry, setJournalEntry] = useState(null);
+  const [journalLoading, setJournalLoading] = useState(true);
+  const [journalError, setJournalError] = useState(null);
 
   const fetchTasks = useCallback(async () => {
     setTasksLoading(true);
@@ -194,6 +270,38 @@ export default function HomeScreen() {
     fetchTransactions();
   }, [fetchTransactions]);
 
+  const fetchLatestJournalEntry = useCallback(async () => {
+    setJournalLoading(true);
+    setJournalError(null);
+
+    if (!isSupabaseConfigured) {
+      setJournalError(new Error("Supabase is not configured."));
+      setJournalLoading(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .select("id,title,body,written_at,created_at,day,month")
+      .eq("user_id", MOCK_USER_ID)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      setJournalError(error);
+      setJournalLoading(false);
+      return;
+    }
+
+    setJournalEntry(data || null);
+    setJournalLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchLatestJournalEntry();
+  }, [fetchLatestJournalEntry]);
+
   const openTasks = useMemo(
     () => tasks.map(normalizeTask).filter(isOpenTask).sort(sortOpenTasks),
     [tasks],
@@ -201,6 +309,16 @@ export default function HomeScreen() {
   const dueTodayCount = openTasks.filter((task) => task.dueLabel === "Today").length;
   const currentBalance = useMemo(() => calculateBalance(transactions), [transactions]);
   const balanceDelta = useMemo(() => calculateBalanceDelta(transactions), [transactions]);
+  const dailyBrief = useMemo(
+    () =>
+      buildDailyBrief({
+        balance: currentBalance,
+        dueTodayCount,
+        journalEntry,
+        openTaskCount: openTasks.length,
+      }),
+    [currentBalance, dueTodayCount, journalEntry, openTasks.length],
+  );
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -279,22 +397,40 @@ export default function HomeScreen() {
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-headline-md text-headline-md text-on-surface">Journal Log</h3>
             <span className="font-data-md text-data-md text-on-surface-variant">
-              {journalEntry.dateLabel}
+              {journalDateLabel(journalEntry)}
             </span>
           </div>
-          <div className="mb-8 flex-1">
-            <p className="font-body-md text-body-lg text-on-surface-variant line-clamp-2 italic border-l-2 border-outline-variant/30 pl-4 py-1">
-              &quot;{journalEntry.firstSentence}&quot;
-            </p>
-          </div>
-          <PrimaryButton>CONTINUE ENTRY</PrimaryButton>
+          <JournalPreview
+            entry={journalEntry}
+            error={journalError}
+            loading={journalLoading}
+            onRetry={fetchLatestJournalEntry}
+          />
+          <PrimaryButton onClick={() => navigate("/journal")}>CONTINUE ENTRY</PrimaryButton>
         </CardSurface>
 
-        <CardSurface className="md:col-span-6 relative overflow-hidden justify-center items-center min-h-[200px]">
-          <LockedCard
-            title="HABIT TRACKER"
-            subtitle="Module currently offline. Coming in v2.1."
-          />
+        <CardSurface className="md:col-span-6 min-h-[200px] justify-between overflow-hidden">
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <p className="font-label-caps text-label-caps text-primary">AI DAILY BRIEF</p>
+              <h3 className="mt-2 font-headline-md text-headline-md text-on-surface">
+                Today&apos;s operating signal
+              </h3>
+            </div>
+            <span className="material-symbols-outlined text-secondary-fixed">auto_awesome</span>
+          </div>
+          <p className="font-body-md text-body-lg text-on-surface-variant">{dailyBrief}</p>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-data-md text-data-md text-on-surface-variant">
+              {openTasks.length} open
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-data-md text-data-md text-on-surface-variant">
+              {dueTodayCount} due today
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-data-md text-data-md text-on-surface-variant">
+              {journalEntry ? "journal fresh" : "journal empty"}
+            </span>
+          </div>
         </CardSurface>
       </div>
     </div>
