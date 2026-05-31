@@ -1,24 +1,24 @@
 export const tasks = [
   {
     id: "task-1",
-    title: "Finalize Q4 Strategy Deck",
+    title: "Review May budget",
     dueLabel: "Today",
-    timeLabel: "14:00",
+    timeLabel: "10:00",
     priority: "High",
     done: false,
   },
   {
     id: "task-2",
-    title: "Review Engineering Specs",
+    title: "Renew health insurance",
     dueLabel: "Today",
-    timeLabel: "16:30",
+    timeLabel: "15:30",
     priority: "Medium",
     done: false,
   },
   {
     id: "task-3",
-    title: "Client Sync: Project Alpha",
-    dueLabel: "Today",
+    title: "Plan grocery order",
+    dueLabel: "Tomorrow",
     timeLabel: "18:00",
     priority: "Low",
     done: false,
@@ -39,35 +39,35 @@ export const financeStats = {
 export const transactions = [
   {
     id: "tx-1",
-    name: "Salary Credit",
+    name: "Consulting Payment",
     date: "2023-10-24",
     category: "income",
     type: "income",
-    amount: 125000,
+    amount: 85000,
   },
   {
     id: "tx-2",
-    name: "Cloud Infrastructure",
+    name: "Rent",
     date: "2023-10-23",
-    category: "infra",
+    category: "utility",
     type: "expense",
-    amount: 18400,
+    amount: 28000,
   },
   {
     id: "tx-3",
-    name: "Team Dinner",
+    name: "Groceries",
     date: "2023-10-22",
     category: "food",
     type: "expense",
-    amount: 4250,
+    amount: 3620,
   },
   {
     id: "tx-4",
-    name: "Airport Transfer",
+    name: "Metro Card Reload",
     date: "2023-10-21",
     category: "travel",
     type: "expense",
-    amount: 1800,
+    amount: 1200,
   },
   {
     id: "tx-5",
@@ -75,24 +75,24 @@ export const transactions = [
     date: "2023-10-20",
     category: "utility",
     type: "expense",
-    amount: 6230,
+    amount: 2840,
   },
   {
     id: "tx-6",
-    name: "Office Supplies",
+    name: "Mobile Recharge",
     date: "2023-10-18",
-    category: "infra",
+    category: "utility",
     type: "expense",
-    amount: 3100,
+    amount: 799,
   },
 ];
 
 export const journalEntries = [
   {
     id: "journal-1",
-    dateLabel: "Oct 23",
+    dateLabel: "May 28",
     firstSentence:
-      "The restructuring seems to be taking effect faster than anticipated. Need to monitor team velocity over the next sprint...",
+      "The day feels cleaner when money, tasks, and notes are all visible in one place. Keep tomorrow focused on the few open loops that matter.",
   },
 ];
 
