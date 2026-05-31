@@ -11,11 +11,29 @@ const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frida
 const NORMALIZED_WEEKDAYS = WEEKDAYS.map((day) => day.toLowerCase());
 const PRIORITY_RANK = { HIGH: 0, MED: 1, MEDIUM: 1, LOW: 2 };
 const STATUS_RANK = { "in-progress": 0, todo: 1, done: 2 };
+const STATUS_TO_COLUMN = { todo: "todo", "in-progress": "wip", done: "done" };
+const SMOKE_TEST_TASK_PATTERNS = [/smoke/i, /task-1 testing-1/i, /manual smoke test/i];
 
 function fmtDate(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso || "No date";
   return MONTHS[d.getMonth()] + " " + d.getDate();
+}
+
+function isSmokeTestTask(task) {
+  return SMOKE_TEST_TASK_PATTERNS.some((pattern) => pattern.test(task.title || ""));
+}
+
+function productionTasks(taskList) {
+  return taskList.filter((task) => !isSmokeTestTask(task));
+}
+
+function buildDemoTasks() {
+  return productionTasks(demoTasks).map((task, index) => ({
+    ...task,
+    id: `demo-${task.id}`,
+    created_at: new Date(Date.now() - index * 60000).toISOString(),
+  }));
 }
 
 function dueDateClass(iso) {
@@ -58,7 +76,7 @@ function isoFromDueLabel(task, index) {
 
 function taskStatus(task, index) {
   if (task.done || task.column === "done") return "done";
-  if (task.column === "wip") return "in-progress";
+  if (task.column === "wip" || task.column === "in-progress") return "in-progress";
   if (task.column === "todo") return "todo";
   if (task.status) return task.status;
   if (index === 1) return "in-progress";
@@ -135,20 +153,24 @@ function ToggleButton({ active, children, onClick }) {
   );
 }
 
-function KanbanCard({ task, state, onMove, saving }) {
+function KanbanCard({ error, task, state, onDragStart, onMove, saving }) {
   const inProgress = state === "in-progress";
   const done = state === "done";
   const actions = [
-    { label: "Todo", column: "todo" },
-    { label: "WIP", column: "wip" },
-    { label: "Done", column: "done" },
-  ].filter((action) => action.column !== task.column);
+    { label: "Todo", column: "todo", status: "todo" },
+    { label: "WIP", column: "wip", status: "in-progress" },
+    { label: "Done", column: "done", status: "done" },
+  ].filter((action) => action.status !== task.status);
 
   return (
     <CardSurface
-      className={`surface-card p-4 hover:-translate-y-1 transition-transform ${
+      className={`surface-card p-4 transition-transform ${
         inProgress ? "border-primary/30" : ""
-      } ${done ? "bg-surface-container-highest/50" : ""}`}
+      } ${done ? "bg-surface-container-highest/50" : ""} ${
+        saving ? "opacity-70" : "cursor-grab hover:-translate-y-1 active:cursor-grabbing"
+      }`}
+      draggable={!saving}
+      onDragStart={(event) => onDragStart(event, task)}
     >
       <div className="flex items-start justify-between gap-3 mb-4">
         <StitchPriorityBadge priority={task.priority} />
@@ -189,12 +211,17 @@ function KanbanCard({ task, state, onMove, saving }) {
             </button>
           ))}
         </div>
+        {error ? (
+          <p className="mt-3 font-body-sm text-[12px] text-error" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
     </CardSurface>
   );
 }
 
-function KanbanColumn({ label, state, items, onMove, savingTaskIds }) {
+function KanbanColumn({ label, state, items, onDragStart, onDropTask, onMove, rowErrors, savingTaskIds }) {
   const isInProgress = state === "in-progress";
   const isDone = state === "done";
 
@@ -227,11 +254,17 @@ function KanbanColumn({ label, state, items, onMove, savingTaskIds }) {
         </span>
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div
+        className="flex min-h-[220px] flex-col gap-4 rounded-lg"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => onDropTask(event, state)}
+      >
         {items.length ? (
           items.map((task) => (
             <KanbanCard
+              error={rowErrors[task.id]}
               key={task.id}
+              onDragStart={onDragStart}
               onMove={onMove}
               saving={savingTaskIds.has(task.id)}
               state={state}
@@ -263,7 +296,8 @@ export default function TasksScreen() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadNotice, setLoadNotice] = useState(null);
-  const [actionError, setActionError] = useState(null);
+  const [formError, setFormError] = useState("");
+  const [rowErrors, setRowErrors] = useState({});
   const [dataSource, setDataSource] = useState("live");
   const [savingTaskIds, setSavingTaskIds] = useState(() => new Set());
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -278,35 +312,60 @@ export default function TasksScreen() {
     estimate: "",
   });
 
+  const useDemoTasks = useCallback((notice) => {
+    setTasks(buildDemoTasks());
+    setDataSource("demo");
+    setLoadNotice(notice);
+    setLoading(false);
+  }, []);
+
   const fetchTasks = useCallback(async () => {
     setLoading(true);
     setLoadNotice(null);
 
     if (!isSupabaseConfigured) {
-      setTasks(demoTasks);
-      setDataSource("demo");
-      setLoadNotice("Demo tasks loaded because Supabase is not configured.");
-      setLoading(false);
+      useDemoTasks("Live sync is not configured. Showing demo tasks.");
       return;
     }
 
-    const { data, error: fetchError } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("user_id", MOCK_USER_ID)
-      .order("created_at", { ascending: false });
+    try {
+      const { data, error: fetchError } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("user_id", MOCK_USER_ID)
+        .order("created_at", { ascending: false });
 
-    if (fetchError) {
-      setTasks(demoTasks);
-      setDataSource("demo");
-      setLoadNotice("Demo tasks loaded because live tasks could not be reached.");
+      if (fetchError) {
+        useDemoTasks("Live sync is unavailable. Showing demo tasks.");
+        return;
+      }
+
+      setTasks(productionTasks(data || []));
+      setDataSource("live");
       setLoading(false);
-      return;
+    } catch (fetchError) {
+      useDemoTasks("Live sync is unavailable. Showing demo tasks.");
     }
+  }, [useDemoTasks]);
 
-    setTasks(data || []);
-    setDataSource("live");
-    setLoading(false);
+  const saveTaskLocally = useCallback((task, notice) => {
+    setTasks((currentTasks) => productionTasks([task, ...currentTasks]));
+    setDataSource("local");
+    setLoadNotice(notice);
+  }, []);
+
+  const clearSavingTask = useCallback((taskId) => {
+    setSavingTaskIds((current) => {
+      const nextIds = new Set(current);
+      nextIds.delete(taskId);
+      return nextIds;
+    });
+  }, []);
+
+  const saveUpdateLocally = useCallback((taskId, message) => {
+    setDataSource("local");
+    setLoadNotice("Live sync is unavailable. Changes are saved locally for this demo session.");
+    setRowErrors((current) => ({ ...current, [taskId]: message }));
   }, []);
 
   useEffect(() => {
@@ -320,21 +379,47 @@ export default function TasksScreen() {
   const inProgressTasks = kanbanTasks.filter((task) => task.status === "in-progress");
   const completedTasks = kanbanTasks.filter((task) => task.status === "done");
 
+  const aiSuggestion = useMemo(() => {
+    const openTasks = rosterTasks.filter((task) => task.status !== "done");
+    const suggestedTask = openTasks[0];
+
+    if (!suggestedTask) {
+      return {
+        title: "Review completed work",
+        detail: "No open tasks. Use the next planning block to reset priorities.",
+        window: "Next planning block",
+      };
+    }
+
+    const urgent = dueDateClass(suggestedTask.dueDate) === "text-error";
+    const dueLabel = fmtDate(suggestedTask.dueDate);
+
+    return {
+      title: suggestedTask.title,
+      detail: `${priorityLabel(suggestedTask.priority)} priority${urgent ? ", overdue or due today" : ""}. Start here before lower-priority work.`,
+      window: `${dueLabel}${suggestedTask.timeLabel ? " at " + suggestedTask.timeLabel : ""}`,
+    };
+  }, [rosterTasks]);
+
   function updateForm(field, value) {
+    setFormError("");
     setForm((current) => ({ ...current, [field]: value }));
   }
 
   async function handleAddTask(event) {
     event.preventDefault();
 
-    if (!form.title.trim() || isAddingTask) return;
+    const title = form.title.trim();
+
+    if (!title || isAddingTask) return;
 
     setIsAddingTask(true);
-    setActionError(null);
+    setFormError("");
 
     const newTask = {
-      id: `demo-${Date.now()}`,
-      title: form.title.trim(),
+      id: `local-${Date.now()}`,
+      user_id: MOCK_USER_ID,
+      title,
       project: form.project.trim() || null,
       due_label: form.due_label.trim() || null,
       time_label: form.time_label.trim() || null,
@@ -345,34 +430,42 @@ export default function TasksScreen() {
       created_at: new Date().toISOString(),
     };
 
-    if (dataSource === "demo") {
-      setTasks((currentTasks) => [newTask, ...currentTasks]);
+    try {
+      if (dataSource !== "live" || !isSupabaseConfigured) {
+        saveTaskLocally(newTask, "Task saved locally for this demo session.");
+        resetForm();
+        return;
+      }
+
+      const { error: insertError } = await supabase.from("tasks").insert({
+        user_id: newTask.user_id,
+        title: newTask.title,
+        project: newTask.project,
+        due_label: newTask.due_label,
+        time_label: newTask.time_label,
+        priority: newTask.priority,
+        column: newTask.column,
+        done: newTask.done,
+        estimate: newTask.estimate,
+      });
+
+      if (insertError) {
+        saveTaskLocally(newTask, "Live sync is unavailable. Task saved locally for this demo session.");
+        setFormError("Live sync failed. Task saved locally for the demo.");
+        resetForm();
+        return;
+      }
+
       resetForm();
+      await fetchTasks();
+    } catch (submitError) {
+      saveTaskLocally(newTask, "Live sync is unavailable. Task saved locally for this demo session.");
+      setFormError("Live sync failed. Task saved locally for the demo.");
+      resetForm();
+    } finally {
+      setLoading(false);
       setIsAddingTask(false);
-      return;
     }
-
-    const { error: insertError } = await supabase.from("tasks").insert({
-      user_id: MOCK_USER_ID,
-      title: newTask.title,
-      project: newTask.project,
-      due_label: newTask.due_label,
-      time_label: newTask.time_label,
-      priority: newTask.priority,
-      column: newTask.column,
-      done: newTask.done,
-      estimate: newTask.estimate,
-    });
-
-    if (insertError) {
-      setActionError("Task could not be added. Existing tasks are still available.");
-      setIsAddingTask(false);
-      return;
-    }
-
-    resetForm();
-    await fetchTasks();
-    setIsAddingTask(false);
   }
 
   function resetForm() {
@@ -390,9 +483,11 @@ export default function TasksScreen() {
   async function updateTask(task, updates) {
     if (savingTaskIds.has(task.id)) return;
 
-    const previousTasks = tasks;
-
-    setActionError(null);
+    setRowErrors((current) => {
+      const nextErrors = { ...current };
+      delete nextErrors[task.id];
+      return nextErrors;
+    });
     setSavingTaskIds((current) => new Set(current).add(task.id));
     setTasks((currentTasks) =>
       currentTasks.map((currentTask) =>
@@ -402,48 +497,60 @@ export default function TasksScreen() {
       ),
     );
 
-    if (dataSource === "demo") {
-      setSavingTaskIds((current) => {
-        const nextIds = new Set(current);
-        nextIds.delete(task.id);
-        return nextIds;
-      });
+    if (dataSource !== "live" || !isSupabaseConfigured) {
+      clearSavingTask(task.id);
       return;
     }
 
-    const { error: updateError } = await supabase
-      .from("tasks")
-      .update(updates)
-      .eq("id", task.id)
-      .eq("user_id", MOCK_USER_ID);
+    try {
+      const { error: updateError } = await supabase
+        .from("tasks")
+        .update(updates)
+        .eq("id", task.id)
+        .eq("user_id", MOCK_USER_ID);
 
-    if (updateError) {
-      setTasks(previousTasks);
-      setActionError("Task update failed. Your visible task list was restored.");
-      setSavingTaskIds((current) => {
-        const nextIds = new Set(current);
-        nextIds.delete(task.id);
-        return nextIds;
-      });
-      return;
+      if (updateError) {
+        saveUpdateLocally(task.id, "Live sync failed. Change saved locally for the demo.");
+        return;
+      }
+
+      fetchTasks();
+    } catch (updateError) {
+      saveUpdateLocally(task.id, "Live sync failed. Change saved locally for the demo.");
+    } finally {
+      clearSavingTask(task.id);
     }
-
-    setSavingTaskIds((current) => {
-      const nextIds = new Set(current);
-      nextIds.delete(task.id);
-      return nextIds;
-    });
-    fetchTasks();
   }
 
   function toggleDone(task) {
     const nextDone = !task.done;
-    const nextColumn = !nextDone && task.column === "done" ? "todo" : task.column;
+    const nextColumn = nextDone
+      ? "done"
+      : task.column === "done" || task.status === "done"
+        ? "todo"
+        : task.column || STATUS_TO_COLUMN[task.status] || "todo";
     updateTask(task, { done: nextDone, column: nextColumn });
   }
 
   function moveTask(task, column) {
     updateTask(task, { column, done: column === "done" });
+  }
+
+  function handleDragStart(event, task) {
+    event.dataTransfer.setData("text/plain", task.id);
+    event.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleDropTask(event, status) {
+    event.preventDefault();
+
+    const taskId = event.dataTransfer.getData("text/plain");
+    const task = rosterTasks.find((currentTask) => currentTask.id === taskId);
+    const column = STATUS_TO_COLUMN[status];
+
+    if (!task || !column || task.status === status) return;
+
+    moveTask(task, column);
   }
 
   function generateAiPlan() {
@@ -522,18 +629,27 @@ export default function TasksScreen() {
               </ol>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-lg border border-primary/25 bg-primary/10 p-4">
+              <p className="font-label-caps text-label-caps text-primary">AI SUGGESTED NEXT TASK</p>
+              <p className="mt-2 font-body-md text-body-md text-on-surface">{aiSuggestion.title}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-[#0D0D0D] p-4">
+              <p className="font-label-caps text-label-caps text-on-surface-variant">WHY</p>
+              <p className="mt-2 font-body-sm text-body-sm text-on-surface">{aiSuggestion.detail}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-[#0D0D0D] p-4">
+              <p className="font-label-caps text-label-caps text-on-surface-variant">SCHEDULE</p>
+              <p className="mt-2 font-body-sm text-body-sm text-on-surface">{aiSuggestion.window}</p>
+            </div>
+          </div>
+        )}
       </CardSurface>
 
       {loadNotice ? (
         <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 font-body-sm text-body-sm text-primary">
           {loadNotice}
-        </div>
-      ) : null}
-
-      {actionError ? (
-        <div className="rounded-lg border border-error/40 bg-error/10 px-4 py-3 font-body-sm text-body-sm text-error">
-          {actionError}
         </div>
       ) : null}
 
@@ -594,6 +710,11 @@ export default function TasksScreen() {
                           <p className="font-data-md text-[12px] text-on-surface-variant opacity-70">
                             {task.category}
                           </p>
+                          {rowErrors[task.id] ? (
+                            <p className="mt-1 font-body-sm text-[12px] text-error" role="alert">
+                              {rowErrors[task.id]}
+                            </p>
+                          ) : null}
                         </div>
                         <div className={`col-start-2 font-data-md ${dueDateClass(task.dueDate)} ${done ? "opacity-50" : ""} md:w-32`}>
                           {fmtDate(task.dueDate)}
@@ -673,6 +794,11 @@ export default function TasksScreen() {
                 >
                   {isAddingTask ? "ADDING" : "ADD TASK"}
                 </button>
+                {formError ? (
+                  <p className="md:col-span-8 font-body-sm text-body-sm text-error" role="alert">
+                    {formError}
+                  </p>
+                ) : null}
               </form>
             </CardSurface>
           </div>
@@ -683,26 +809,38 @@ export default function TasksScreen() {
             <h3 className="font-headline-md text-headline-md text-on-surface opacity-50">
               Workflow
             </h3>
+            <p className="font-body-sm text-body-sm text-on-surface-variant">
+              Drag cards between columns or use the move buttons on each card.
+            </p>
 
             <div className="flex gap-4 overflow-x-auto">
               <KanbanColumn
                 items={todoTasks}
                 label="TO DO"
+                onDragStart={handleDragStart}
+                onDropTask={handleDropTask}
                 onMove={moveTask}
+                rowErrors={rowErrors}
                 savingTaskIds={savingTaskIds}
                 state="todo"
               />
               <KanbanColumn
                 items={inProgressTasks}
                 label="IN PROGRESS"
+                onDragStart={handleDragStart}
+                onDropTask={handleDropTask}
                 onMove={moveTask}
+                rowErrors={rowErrors}
                 savingTaskIds={savingTaskIds}
                 state="in-progress"
               />
               <KanbanColumn
                 items={completedTasks}
                 label="DONE"
+                onDragStart={handleDragStart}
+                onDropTask={handleDropTask}
                 onMove={moveTask}
+                rowErrors={rowErrors}
                 savingTaskIds={savingTaskIds}
                 state="done"
               />
